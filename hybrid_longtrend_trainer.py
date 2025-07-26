@@ -29,7 +29,7 @@ from .meta_transformer import MetaTransformer
 from .base import BaseTrainer
 # ganz oben einmalig ergänzen (falls noch nicht vorhanden):
 from transformers import EarlyStoppingCallback, IntervalStrategy
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # ───────────────────────── helper‑datasets ─────────────────────────
@@ -232,29 +232,28 @@ class HybridLongTrendTrainer(BaseTrainer):
     # -------- 1‑D‑CNN Basismodell --------
     def _train_cnn(self, X: np.ndarray, y: np.ndarray):
         """
-        X: ndarray  [B, seq_len, n_feat]  (z.B. [B, 24, 10])
-        y: ndarray  [B]                   (0/1‑Label)
+        X: ndarray  [N, seq_len, n_feat]
+        y: ndarray  [N]
         """
-        mdl = SimpleCNN(n_feat=X.shape[2])  # Kanäle = 10
+        mdl = SimpleCNN(n_feat=X.shape[2]).to(device)
 
-        # [B, seq_len, n_feat]  ->  [B, n_feat, seq_len]
-        X_t = torch.tensor(X, dtype=torch.float32).permute(0, 2, 1)
-        y_t = torch.tensor(y, dtype=torch.float32)        # Shape [B]
+        # →  Torch-Tensors auf den richtigen Device
+        X_t = torch.tensor(X, dtype=torch.float32, device=device).permute(0, 2, 1)  # [N, n_feat, L]
+        y_t = torch.tensor(y, dtype=torch.float32, device=device).view(-1)          # [N]  (‼️ SQUEEZE)
 
         crit = nn.BCEWithLogitsLoss()
-        opt  = optim.Adam(mdl.parameters(), lr=1e-3)      # 1e-3 mit normalem Minus
+        opt  = optim.Adam(mdl.parameters(), lr=1e-3)
 
         mdl.train()
         for _ in range(10):
             opt.zero_grad()
-            logits = mdl(X_t)      # [B]
+            logits = mdl(X_t)                 # [N]
             loss   = crit(logits, y_t)
             loss.backward()
             opt.step()
 
-        return mdl
-
-
+        #  für spätere CPU-Inference wieder zurück-schieben
+        return mdl.cpu()
 
 # ═════════════════════ FT‑Transformer Helfer ══════════════════════════════
         # ══════════════════  FT‑Transformer Fabrik  ════════════════════════
@@ -436,50 +435,63 @@ class HybridLongTrendTrainer(BaseTrainer):
 
 # ═══════════════  Meta‑Stacking / Optimieren  ═════════════════════════════
     def optimize(self, X, y):
-        X_flat = self._flat(X)
+        X_flat      = self._flat(X)
 
+        # ① Basismodelle trainieren
         self.rf_list  = self._train_rf(X, y)
-        self.ft       = self._train_ft(X, y)
+        self.ft       = self._train_ft(X, y)           # ← nutzt intern GPU über HF-Trainer
         self.lgb_list = self._train_lgb(X, y)
         self.xgb_list = self._train_xgb(X, y)
         self.cnn      = self._train_cnn(X, y)
 
+        # ② Vorhersagen **für den Val-Fold** erzeugen
+        X_val_flat = self._flat(self.X_val)
+
         def mean_preds(models, Xtab, kind):
-            if kind=="rf" : return np.mean([m.predict_proba(Xtab)[:,1] for m in models], 0)
-            if kind=="lgb": return np.mean([m.predict(Xtab) for m in models], 0)
-            if kind=="xgb": return np.mean([m.predict(xgb.DMatrix(Xtab)) for m in models], 0)
+            if kind == "rf":
+                return np.mean([m.predict_proba(Xtab)[:, 1] for m in models], axis=0)
+            if kind == "lgb":
+                return np.mean([m.predict(Xtab) for m in models], axis=0)
+            if kind == "xgb":
+                return np.mean([m.predict(xgb.DMatrix(Xtab)) for m in models], axis=0)
 
-        ft_probs = torch.sigmoid(
-            self.ft(torch.tensor(X_flat, dtype=torch.float32))["logits"]
-        ).detach().cpu().numpy()
-
-        preds_all = np.stack([
-            mean_preds(self.rf_list , X_flat, "rf"),
-            mean_preds(self.lgb_list, X_flat, "lgb"),
-            mean_preds(self.xgb_list, X_flat, "xgb"),
-            ft_probs,
+        preds_val = np.stack([
+            mean_preds(self.rf_list,  X_val_flat, "rf"),
+            mean_preds(self.lgb_list, X_val_flat, "lgb"),
+            mean_preds(self.xgb_list, X_val_flat, "xgb"),
+            # FT-Transformer
             torch.sigmoid(
-                self.cnn(torch.tensor(X[:,:,None]).float())
-            ).detach().numpy()
+                self.ft(torch.tensor(X_val_flat, dtype=torch.float32, device=device))["logits"]
+            ).detach().cpu().numpy(),
+            # CNN – ACHTUNG: korrekt permutieren!
+            torch.sigmoid(
+                self.cnn(
+                    torch.tensor(self.X_val, dtype=torch.float32, device=device).permute(0, 2, 1)
+                )
+            ).detach().cpu().numpy()
         ], axis=1).astype(np.float32)
 
-        meta_ds   = MetaDataset(preds_all, y)
+        # ③ Meta‑Modell NUR auf Val‑Fold trainieren (reduziert Leakage / Overfitting)
+        meta_ds   = MetaDataset(preds_val, self.y_val)
         meta_args = TrainingArguments(
-            output_dir="meta_runs",
-            per_device_train_batch_size=128,
-            num_train_epochs=10,
-            learning_rate=1e-3,
-            fp16=True,
-            logging_steps=20,
-            report_to=[]
+            output_dir                  = "meta_runs",
+            per_device_train_batch_size = 128,
+            num_train_epochs            = 10,
+            learning_rate               = 1e-3,
+            fp16                        = torch.cuda.is_available(),
+            logging_steps               = 20,
+            report_to                   = []   # ← FIX: '=' eingefügt
         )
-        self.meta = MetaTransformer(self.cfg, n_models=preds_all.shape[1])
-        Trainer(model=self.meta, args=meta_args,
+
+
+        self.meta = MetaTransformer(self.cfg, n_models=preds_val.shape[1]).to(device)
+        Trainer(model=self.meta,
+                args=meta_args,
                 train_dataset=meta_ds,
                 data_collator=meta_collate).train()
 
         class Dummy: best_params = {}
-        return Dummy()           # für BaseTrainer
+        return Dummy()
 
 # ═════════════════════ Speichern ══════════════════════════════════════════
     def save_model(self, _):
