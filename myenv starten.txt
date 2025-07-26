@@ -1,0 +1,29 @@
+```powershell
+
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+.\ml-env\Scripts\Activate.ps1
+
+# 1. Im Projektordner
+# 2. venv aktivieren
+# 3. Kontrollblick – Prompt hat jetzt (ml-env) vorn
+(ml-env) PS C:\trainers>
+
+# Terminal/PowerShell im Ordner „trainers“ (dort liegt train.py)
+(ml-env) PS C:\trainers> 
+
+python train.py --type entry            --cfg config.yaml
+python train.py --type exit             --cfg config.yaml
+python train.py --cfg config.yaml --type hybrid
+
+
+# Terminal (im ml‑env)
+python validate.py \
+       --data_dir "C:/trainers/data" \
+       --model_dir "C:/trainers/models/hybrid_best"
+
+
+
+
+python train.py --cfg config.yaml --type hybrid --ssl-weights ft_ssl.pt
+
+

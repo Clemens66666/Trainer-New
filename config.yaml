@@ -1,0 +1,64 @@
+data:
+  raw_dir: "./data"
+  longtrend_file: "longtrend.csv"
+
+cv:
+  type: timeseries
+  params:
+    n_splits: 5
+
+optuna:
+  n_trials: 1
+
+
+
+features:
+  window_sizes: [5, 10, 20]
+  indicators:   [sma_20, ema_20, rsi_14, macd, bb_pct, atr_14]
+  time_features: true
+  seq_len: 24
+
+model:
+  type: hybrid_longtrend          # oder ein passender Name
+  rf_params:                      # ← bleibt erhalten
+    n_estimators: 250
+    max_depth:    8
+    class_weight: balanced
+
+  ft_params:                      # hier alle FT‑Hyperparameter
+    d_token:            256
+    n_blocks:           6
+    numerical_bn:       layernorm
+    ffn_dropout:        0.10
+    attention_dropout:  0.10
+
+pretraining:
+  enabled: true
+  weights_path: "ft_ssl.pt"
+  epochs: 20
+  batch_size: 256
+
+
+training:
+  seq_len: 24
+  batch_size: 32
+  num_train_epochs: 20
+  lr: 1e-3
+  lr_scheduler: cosine
+  warmup_epochs: 2
+
+trend:
+  windows: [6, 12, 24, 48, 96]      # bars
+  t_stat_thresh: 2.2
+  dc_threshold_pct: 0.05
+
+entry:
+  atr_window: 14
+  tp_mul: 2.0                # ×ATR
+  sl_mul: 1.2
+  horizon: 24                # bars
+  execute_p: 0.55            # meta‑label threshold
+
+exit:
+  max_horizon: 48            # bars
+  trail_atr_mul: 1.5
