@@ -65,7 +65,7 @@ class FTWrapped(nn.Module):
         ft_base: nn.Module,
         pos_weight: torch.Tensor | None = None,
         label_smooth_eps: float = 0.0,
-        focal_gamma: float | None = None,          # ← NEU
+        focal_gamma: float | None = None,          # ← NEU
     ):
         super().__init__()
         self.ft   = ft_base
@@ -155,7 +155,7 @@ class HybridLongTrendTrainer(BaseTrainer):
 
         return self.X_train, self.y_train
 
-# ═══════════════════════════ Utility 3‑D → 2‑D ════════════════════════════
+# ═══════════════════════════ Utility 3‑D → 2‑D ════════════════════════════
     @staticmethod
     def _flat(X3d: np.ndarray) -> np.ndarray:
         return X3d.reshape(len(X3d), -1)
@@ -178,7 +178,7 @@ class HybridLongTrendTrainer(BaseTrainer):
             base_loss = model.crit         # alte Variante
             eps       = getattr(model, "eps", 0.0)
         else:
-            # Fallback – einfaches BCE (ohne focal)
+            # Fallback – einfaches BCE (ohne focal)
             pos_weight = torch.tensor([(len(y) - y.sum()) / (y.sum() + 1e-6)])
             base_loss  = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
             eps        = 0.0
@@ -254,6 +254,32 @@ class HybridLongTrendTrainer(BaseTrainer):
 
         #  für spätere CPU-Inference wieder zurück-schieben
         return mdl.cpu()
+        # ───────────────────────────────
+    # RAM‑schonende Inferenz für FT
+    # ───────────────────────────────
+    def _predict_ft_logits(self, X_num: np.ndarray, batch_size: int = 1024) -> np.ndarray:
+        """
+        Berechnet Logits des FT‑Transformers stückweise, um Speicher zu sparen.
+
+        Parameters
+        ----------
+        X_num : ndarray  [N, 240]  flach ⇒ 24 × 10 numerische Features
+        batch_size : int  Größe der Mini‑Batches für die Inferenz
+        """
+        self.ft.eval()                          # kein Dropout
+        preds = []
+
+        with torch.no_grad():                   # Autograd ausschalten
+            for i in range(0, len(X_num), batch_size):
+                x_batch = torch.tensor(
+                    X_num[i : i + batch_size],
+                    dtype=torch.float32,
+                    device=self.device         # self.device ist cpu | cuda
+                )
+                logits = self.ft(x_batch, None).squeeze(-1)  # [B]
+                preds.append(logits.cpu().numpy())
+
+        return np.concatenate(preds, axis=0)
 
 # ═════════════════════ FT‑Transformer Helfer ══════════════════════════════
         # ══════════════════  FT‑Transformer Fabrik  ════════════════════════
@@ -295,7 +321,7 @@ class HybridLongTrendTrainer(BaseTrainer):
         # ───────────────────── FT + Optuna Objective ──────────────────────────────
     # ───────────────────────── FT‑Optuna‑Objective ─────────────────────────
     # ═════════════════════════════════════════════════════════════════════
-#  FT‑Optuna‑Objective  (inkl. seq_len‑Search, Early‑Stopping, Focal Loss)
+#  FT‑Optuna‑Objective  (inkl. seq_len‑Search, Early‑Stopping, Focal Loss)
 # ═════════════════════════════════════════════════════════════════════
     # ───────────────────────── Optuna‑Objective ─────────────────────────────
     def _ft_objective(self, trial, Xf, y):
@@ -366,10 +392,8 @@ class HybridLongTrendTrainer(BaseTrainer):
             shutil.rmtree(ckpt, ignore_errors=True)
         torch.cuda.empty_cache(); gc.collect()
 
-    # ────────────────────── FT‑Training + Final‑Fit ───────────────────────────
-    # ───────────────────────── FT‑Final‑Training ────────────────────────────
-# ───────────────────────── FT‑Training ──────────────────────────────────
-    # ───────────────────────── FT‑Training (Optuna + Final‑Fit) ──────────────────
+
+    # ───────────────────────── FT‑Training (Optuna + Final‑Fit) ──────────────────
     def _train_ft(self, X, y):  
         Xf = self._flat(X)                              # (N, L*F)
 
@@ -422,7 +446,7 @@ class HybridLongTrendTrainer(BaseTrainer):
             learning_rate               = best["lr"],
             weight_decay                = 1e-2,
             fp16                        = True,
-            logging_steps               = 20,
+            logging_steps               = 50,
             report_to                   = [],
         )
 
@@ -459,14 +483,17 @@ class HybridLongTrendTrainer(BaseTrainer):
             mean_preds(self.rf_list,  X_val_flat, "rf"),
             mean_preds(self.lgb_list, X_val_flat, "lgb"),
             mean_preds(self.xgb_list, X_val_flat, "xgb"),
-            # FT-Transformer
+            # ─ FT (gestückelt, spart RAM) ────────────────────────────────
             torch.sigmoid(
-                self.ft(torch.tensor(X_val_flat, dtype=torch.float32, device=device))["logits"]
-            ).detach().cpu().numpy(),
-            # CNN – ACHTUNG: korrekt permutieren!
+                torch.tensor(
+                    self._predict_ft_logits(X_val_flat),
+                    dtype=torch.float32
+                )
+            ).numpy(),
+            # CNN – permutieren bleibt gleich
             torch.sigmoid(
                 self.cnn(
-                    torch.tensor(self.X_val, dtype=torch.float32, device=device).permute(0, 2, 1)
+                    torch.tensor(self.X_val, dtype=torch.float32, device=self.device).permute(0, 2, 1)
                 )
             ).detach().cpu().numpy()
         ], axis=1).astype(np.float32)
@@ -479,7 +506,7 @@ class HybridLongTrendTrainer(BaseTrainer):
             num_train_epochs            = 10,
             learning_rate               = 1e-3,
             fp16                        = torch.cuda.is_available(),
-            logging_steps               = 20,
+            logging_steps               = 50,
             report_to                   = []   # ← FIX: '=' eingefügt
         )
 
