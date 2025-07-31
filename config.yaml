@@ -38,14 +38,23 @@ pretraining:
   epochs: 20
   batch_size: 256
 
+meta:
+  # Hyper­parameter für den Meta-Transformer
+  d_token: 64     # Breite der Token-Einbettung
+  n_blocks: 2     # Anzahl Transformer-Encoder-Blöcke
+  d_ff: 256       # Größe des Feed-Forward-Layers
+  dropout: 0.10   # Dropout-Rate innerhalb der Blöcke
+  num_train_epochs: 3
 
 training:
   seq_len: 24
   batch_size: 32
-  num_train_epochs: 20
+  num_train_epochs: 1          # finales FT-Fine-Tuning
   lr: 1e-3
   lr_scheduler: cosine
   warmup_epochs: 2
+  ft_optuna_epochs: 1          # Scout-Phase
+
 
 trend:
   windows: [6, 12, 24, 48, 96]      # bars

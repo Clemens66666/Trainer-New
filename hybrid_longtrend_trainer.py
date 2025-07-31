@@ -65,7 +65,7 @@ class FTWrapped(nn.Module):
         ft_base: nn.Module,
         pos_weight: torch.Tensor | None = None,
         label_smooth_eps: float = 0.0,
-        focal_gamma: float | None = None,          # ← NEU
+        focal_gamma: float | None = None,          # ← NEU
     ):
         super().__init__()
         self.ft   = ft_base
@@ -119,10 +119,11 @@ class MetaDataset(Dataset):
 # ──────────────────────── Trainer‑Klasse ───────────────────────────
 # ───────────────────────── HybridLongTrendTrainer ──────────────────────────
 class HybridLongTrendTrainer(BaseTrainer):
-# ═══════════════════════════  Daten laden & Val‑Split  ═════════════════════
-# ═════════════════════════════════════════════════════════════════════
-#  Daten laden  (ohne Trial‑Abhängigkeit)
-# ═════════════════════════════════════════════════════════════════════
+    def __init__(self, cfg_path: str):
+        super().__init__(cfg_path)
+        # Alle Operationen auf CPU erzwingen (GPU vollständig deaktivieren)
+        self.device = torch.device("cpu")
+
 # ───────────────────────────── Daten laden ──────────────────────────────
     def load_data(self):
         num_cols = [
@@ -155,7 +156,7 @@ class HybridLongTrendTrainer(BaseTrainer):
 
         return self.X_train, self.y_train
 
-# ═══════════════════════════ Utility 3‑D → 2‑D ════════════════════════════
+# ═══════════════════════════ Utility 3‑D → 2‑D ════════════════════════════
     @staticmethod
     def _flat(X3d: np.ndarray) -> np.ndarray:
         return X3d.reshape(len(X3d), -1)
@@ -178,7 +179,7 @@ class HybridLongTrendTrainer(BaseTrainer):
             base_loss = model.crit         # alte Variante
             eps       = getattr(model, "eps", 0.0)
         else:
-            # Fallback – einfaches BCE (ohne focal)
+            # Fallback – einfaches BCE (ohne focal)
             pos_weight = torch.tensor([(len(y) - y.sum()) / (y.sum() + 1e-6)])
             base_loss  = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
             eps        = 0.0
@@ -235,51 +236,66 @@ class HybridLongTrendTrainer(BaseTrainer):
         X: ndarray  [N, seq_len, n_feat]
         y: ndarray  [N]
         """
-        mdl = SimpleCNN(n_feat=X.shape[2]).to(device)
-
-        # →  Torch-Tensors auf den richtigen Device
-        X_t = torch.tensor(X, dtype=torch.float32, device=device).permute(0, 2, 1)  # [N, n_feat, L]
-        y_t = torch.tensor(y, dtype=torch.float32, device=device).view(-1)          # [N]  (‼️ SQUEEZE)
-
+        mdl = SimpleCNN(n_feat=X.shape[2]).to(self.device)
+        # Torch-Tensoren auf das festgelegte Device (CPU) übertragen
+        X_t = torch.tensor(X, dtype=torch.float32, device=self.device).permute(0, 2, 1)  # [N, n_feat, L]
+        y_t = torch.tensor(y, dtype=torch.float32, device=self.device).view(-1)          # [N]
         crit = nn.BCEWithLogitsLoss()
         opt  = optim.Adam(mdl.parameters(), lr=1e-3)
-
         mdl.train()
         for _ in range(10):
             opt.zero_grad()
-            logits = mdl(X_t)                 # [N]
+            logits = mdl(X_t)                
             loss   = crit(logits, y_t)
             loss.backward()
             opt.step()
-
-        #  für spätere CPU-Inference wieder zurück-schieben
+        # Für die spätere Inferenz auf CPU belassen (Modell ist bereits auf CPU)
         return mdl.cpu()
-        # ───────────────────────────────
-    # RAM‑schonende Inferenz für FT
+
     # ───────────────────────────────
-    def _predict_ft_logits(self, X_num: np.ndarray, batch_size: int = 1024) -> np.ndarray:
+    @torch.no_grad()
+    def _predict_ft_logits(self, Xf: np.ndarray, batch_size: int = 1024) -> np.ndarray:
         """
-        Berechnet Logits des FT‑Transformers stückweise, um Speicher zu sparen.
+        Liefert rohe (vor Sigmoid) Logits des fein‑getunten FT‑Transformers zurück
+        – komplett auf der CPU, speicherschonend in Batches.
 
         Parameters
         ----------
-        X_num : ndarray  [N, 240]  flach ⇒ 24 × 10 numerische Features
-        batch_size : int  Größe der Mini‑Batches für die Inferenz
+        Xf : np.ndarray  [N, d]
+            Geﬂattete Feature‑Matrix.
+        batch_size : int
+            Batchgröße für die Inferenz.
+
+        Returns
+        -------
+        np.ndarray  [N]
+            Logits als 1‑D‑Array auf der CPU.
         """
-        self.ft.eval()                          # kein Dropout
+        self.ft.eval()
         preds = []
+        for i in range(0, len(Xf), batch_size):
+            x_batch = torch.tensor(Xf[i : i + batch_size],
+                                   dtype=torch.float32,
+                                   device=self.device)
 
-        with torch.no_grad():                   # Autograd ausschalten
-            for i in range(0, len(X_num), batch_size):
-                x_batch = torch.tensor(
-                    X_num[i : i + batch_size],
-                    dtype=torch.float32,
-                    device=self.device         # self.device ist cpu | cuda
-                )
-                logits = self.ft(x_batch, None).squeeze(-1)  # [B]
-                preds.append(logits.cpu().numpy())
+            # PEFT/HF‑Modelle geben oft ein Output‑Dict oder Tuple zurück
+            try:
+                output = self.ft(x_batch)          # Standard‑Forward
+            except TypeError:
+                output = self.ft(x_batch, None)    # Fallback, falls zweites Argument erwartet wird
 
-        return np.concatenate(preds, axis=0)
+            if isinstance(output, dict):
+                logits = output["logits"]
+            elif isinstance(output, (tuple, list)):
+                logits = output[0]
+            else:
+                logits = output
+
+            preds.append(logits.squeeze(-1).cpu())
+            del x_batch, output, logits            # RAM sofort freigeben
+
+        torch.cuda.empty_cache(); gc.collect()
+        return torch.cat(preds).numpy()
 
 # ═════════════════════ FT‑Transformer Helfer ══════════════════════════════
         # ══════════════════  FT‑Transformer Fabrik  ════════════════════════
@@ -319,69 +335,78 @@ class HybridLongTrendTrainer(BaseTrainer):
         )
 
         # ───────────────────── FT + Optuna Objective ──────────────────────────────
-    # ───────────────────────── FT‑Optuna‑Objective ─────────────────────────
-    # ═════════════════════════════════════════════════════════════════════
-#  FT‑Optuna‑Objective  (inkl. seq_len‑Search, Early‑Stopping, Focal Loss)
-# ═════════════════════════════════════════════════════════════════════
-    # ───────────────────────── Optuna‑Objective ─────────────────────────────
-    def _ft_objective(self, trial, Xf, y):
+
+    def _ft_objective(self, trial, Xf: np.ndarray, y: np.ndarray) -> float:
+        """
+        Liefert die Log-Loss auf dem Validierungs-Fold zurück.
+
+        Konfig-Schlüssel
+        ----------------
+        training.ft_optuna_epochs   –  # Epochen pro Trial (Default = 3)
+        """
+        # 1) Hyperparameter, die Optuna sucht
         hp = {
-            "n_blocks": trial.suggest_int("n_blocks", 2, 6),
-            "lr"      : trial.suggest_float("lr", 1e-5, 3e-4, log=True),
+            "lr":       trial.suggest_float("lr",      1e-6, 5e-4, log=True),
+            "n_blocks": trial.suggest_int(  "n_blocks", 2,    6),
         }
 
+        # 2) Anzahl Epochen aus der YAML lesen
+        optuna_epochs = self.cfg.get("training", {}).get("ft_optuna_epochs", 3)
+
+        # 3) Daten in Train / Val splitten
+        split      = int(0.8 * len(Xf))
+        ds_train   = NumpyDataset(Xf[:split],  y[:split])
+        ds_val     = NumpyDataset(Xf[split:], y[split:])
+
+        # 4) FT-Modell + LoRA + Wrapper
+        base_ft  = self._make_ft(Xf.shape[1], hp["n_blocks"])
+        peft_ft  = get_peft_model(
+                     base_ft,
+                     LoraConfig(r=4, lora_alpha=16, lora_dropout=0.05,
+                                target_modules=["ffn.linear_first"])
+                   )
+
+        # Klassengewicht (positiv / negativ)
         pos_weight = torch.tensor([(len(y) - y.sum()) / (y.sum() + 1e-6)])
-        ft   = self._make_ft(Xf.shape[1], hp["n_blocks"])
 
-        # kleiner LoRA‑Rank
-        last2  = range(hp["n_blocks"] - 2, hp["n_blocks"])
-        target = [f"blocks.{i}.{p}"
-                for i in last2
-                for p in ["attention.W_q", "attention.W_k", "attention.W_v",
-                            "attention.W_out", "ffn.linear_first",
-                            "ffn.linear_second"]]
-        ft = get_peft_model(ft, LoraConfig(r=4, lora_alpha=16,
-                                       lora_dropout=0.05,
-                                       target_modules=target))
-
-        model = FTWrapped(ft,
-                        pos_weight    = pos_weight,
-                        label_smooth_eps = 0.10,
-                        focal_gamma      = 2.0)
-
-        split = int(0.8 * len(y))
-        ds_train = NumpyDataset(Xf[:split],  y[:split])
-        ds_val   = NumpyDataset(Xf[split:], y[split:])
+        model = FTWrapped(
+                    peft_ft,
+                    pos_weight       = pos_weight,
+                    label_smooth_eps = 0.10,
+                    focal_gamma      = 2.0,
+                )
 
         args = TrainingArguments(
-            output_dir                  = "opt_ft_tmp",
+            output_dir              = "opt_ft_tmp",
             per_device_train_batch_size = 32,
-            num_train_epochs            = 6,
-            learning_rate               = hp["lr"],
-            weight_decay                = 1e-2,
-            fp16                        = True,
-            logging_steps               = 50,
-            report_to                   = [],      # keine externen Logger
+            num_train_epochs        = optuna_epochs,
+            learning_rate           = hp["lr"],
+            weight_decay            = 1e-2,
+            no_cuda                 = True,
+            fp16                    = False,
+            logging_steps           = 50,
+            report_to               = [],
+            eval_strategy           = IntervalStrategy.EPOCH,
+            save_strategy           = IntervalStrategy.EPOCH,   # Save = Eval
+            load_best_model_at_end  = True,
+            metric_for_best_model   = "eval_loss",
         )
-        # ► Early‑Stopping‑Settings  (neu: eval_strategy statt evaluation_strategy)
-        args.metric_for_best_model  = "eval_loss"
-        args.load_best_model_at_end = True
-        args.eval_strategy          = IntervalStrategy.EPOCH  
 
         trainer = Trainer(
-            model         = model,
+            model         = model,            # Wrapper versteht `labels`
             args          = args,
             train_dataset = ds_train,
             eval_dataset  = ds_val,
             data_collator = numeric_collate,
         )
-        from transformers import EarlyStoppingCallback
         trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=2))
         trainer.train()
 
+        # 5) Log-Loss auf Val-Set berechnen
         val_loss = self._batch_log_loss(model, Xf[split:], y[split:])
 
-        del trainer, model, ft, ds_train, ds_val
+        # Speicher aufräumen
+        del trainer, model, peft_ft, base_ft, ds_train, ds_val
         torch.cuda.empty_cache(); gc.collect()
         return val_loss
 
@@ -393,11 +418,10 @@ class HybridLongTrendTrainer(BaseTrainer):
         torch.cuda.empty_cache(); gc.collect()
 
 
-    # ───────────────────────── FT‑Training (Optuna + Final‑Fit) ──────────────────
-    def _train_ft(self, X, y):  
-        Xf = self._flat(X)                              # (N, L*F)
-
-        # ---------- Optuna‑Suche -------------------------------------------------
+    # ───────────────────────── FT‑Training (Optuna + Final‑Fit) ──────────────────
+    def _train_ft(self, X, y):
+        Xf = self._flat(X)
+        # Optuna-Suche nach hyperparametern (bleibt unverändert) ...
         ft_study = optuna.create_study(direction="minimize")
         ft_study.optimize(
             lambda t: self._ft_objective(t, Xf, y),
@@ -405,72 +429,51 @@ class HybridLongTrendTrainer(BaseTrainer):
             callbacks         = [self._cleanup_callback],
             show_progress_bar = False,
         )
-
         best = ft_study.best_params
-        print("🟢  FT‑best:", best)
+        print("🟢  FT-best:", best)
+        # -------------------- finales Training --------------------
+        ft_epochs = self.cfg.get("training", {}).get("num_train_epochs", 8)  # 🆕 konfigurierbar
 
-        # ---------- Final‑Fit mit besten Parametern -----------------------------
+        # FT-Transformer mit besten Parametern erstellen ...
         pos_weight = torch.tensor([(len(y) - y.sum()) / (y.sum() + 1e-6)])
-
         ft = self._make_ft(Xf.shape[1], best["n_blocks"])
-
         last2  = range(best["n_blocks"] - 2, best["n_blocks"])
-        target = [f"blocks.{i}.{p}"
-                for i in last2
-                for p in ["attention.W_q", "attention.W_k", "attention.W_v",
-                            "attention.W_out", "ffn.linear_first",
-                            "ffn.linear_second"]]
-        ft = get_peft_model(ft, LoraConfig(r=4, lora_alpha=16,
-                                        lora_dropout=0.05,
-                                        target_modules=target))
-
-        model = FTWrapped(ft,
-                        pos_weight       = pos_weight,
-                        label_smooth_eps = 0.10,
-                        focal_gamma      = 2.0)
-
-        # ── Optional: SSL‑Weights vor dem Fine‑Tuning laden ────────────────
-        from pathlib import Path
-
-        if getattr(self, "ssl_weights", None) and Path(self.ssl_weights).exists():
-            print(f"▶  Lade SSL-Weights von {self.ssl_weights}")
-            # model.ft ist dein PEFT‑Model, strict=False ignoriert fehlende Keys
-            model.ft.load_state_dict(torch.load(self.ssl_weights), strict=False)
-
+        target = [f"blocks.{i}.{p}" for i in last2 for p in [
+                    "attention.W_q", "attention.W_k", "attention.W_v",
+                    "attention.W_out", "ffn.linear_first", "ffn.linear_second"]]
+        ft = get_peft_model(ft, LoraConfig(r=4, lora_alpha=16, lora_dropout=0.05, target_modules=target))
+        model = FTWrapped(ft, pos_weight=pos_weight, label_smooth_eps=0.10, focal_gamma=2.0)
+        # Finales Training auf voller Trainingsmenge (auf CPU, ohne FP16)
         final_ds   = NumpyDataset(Xf, y)
-
         final_args = TrainingArguments(
-            output_dir                  = "ft_final",
+            output_dir              = "ft_final",
             per_device_train_batch_size = 32,
-            num_train_epochs            = 8,
-            learning_rate               = best["lr"],
-            weight_decay                = 1e-2,
-            fp16                        = True,
-            logging_steps               = 50,
-            report_to                   = [],
+            num_train_epochs        = ft_epochs,
+            learning_rate           = best["lr"],
+            weight_decay            = 1e-2,
+            no_cuda                 = True,
+            fp16                    = False,
+            logging_steps           = 50,
+            report_to               = [],
+            eval_strategy           = IntervalStrategy.NO,     # 👈  KEINE Eval
+            save_strategy           = IntervalStrategy.NO,     # 👈  KEIN autosave
         )
 
-        Trainer(model=model, args=final_args,
-                train_dataset=final_ds,
-                data_collator=numeric_collate).train()
-
+        Trainer(model=model, args=final_args, train_dataset=final_ds, data_collator=numeric_collate).train()
         torch.cuda.empty_cache(); gc.collect()
         return model
 
 # ═══════════════  Meta‑Stacking / Optimieren  ═════════════════════════════
     def optimize(self, X, y):
-        X_flat      = self._flat(X)
-
-        # ① Basismodelle trainieren
+        X_flat = self._flat(X)
+        # ① Basis-Modelle trainieren
         self.rf_list  = self._train_rf(X, y)
-        self.ft       = self._train_ft(X, y)           # ← nutzt intern GPU über HF-Trainer
+        self.ft       = self._train_ft(X, y)    # läuft jetzt auf CPU
         self.lgb_list = self._train_lgb(X, y)
         self.xgb_list = self._train_xgb(X, y)
         self.cnn      = self._train_cnn(X, y)
-
-        # ② Vorhersagen **für den Val-Fold** erzeugen
+        # ② Vorhersagen für den Validierungs-Fold erzeugen
         X_val_flat = self._flat(self.X_val)
-
         def mean_preds(models, Xtab, kind):
             if kind == "rf":
                 return np.mean([m.predict_proba(Xtab)[:, 1] for m in models], axis=0)
@@ -478,45 +481,42 @@ class HybridLongTrendTrainer(BaseTrainer):
                 return np.mean([m.predict(Xtab) for m in models], axis=0)
             if kind == "xgb":
                 return np.mean([m.predict(xgb.DMatrix(Xtab)) for m in models], axis=0)
-
         preds_val = np.stack([
             mean_preds(self.rf_list,  X_val_flat, "rf"),
             mean_preds(self.lgb_list, X_val_flat, "lgb"),
             mean_preds(self.xgb_list, X_val_flat, "xgb"),
-            # ─ FT (gestückelt, spart RAM) ────────────────────────────────
+            # FT – stückweise auf CPU inferieren (spart RAM)
+            torch.sigmoid(torch.tensor(self._predict_ft_logits(X_val_flat), dtype=torch.float32)).numpy(),
+            # CNN – Eingabedaten auf CPU-Tensor, dann Vorhersage
             torch.sigmoid(
-                torch.tensor(
-                    self._predict_ft_logits(X_val_flat),
-                    dtype=torch.float32
-                )
-            ).numpy(),
-            # CNN – permutieren bleibt gleich
-            torch.sigmoid(
-                self.cnn(
-                    torch.tensor(self.X_val, dtype=torch.float32, device=self.device).permute(0, 2, 1)
-                )
+                self.cnn(torch.tensor(self.X_val, dtype=torch.float32, device=self.device).permute(0, 2, 1))
             ).detach().cpu().numpy()
         ], axis=1).astype(np.float32)
+        # ③ Meta-Modell nur auf dem Val-Fold trainieren
+        # ---------- Meta-Training ----------
+        meta_epochs = self.cfg.get("meta", {}).get("num_train_epochs", 10)   # 🆕 konfigurierbar
 
-        # ③ Meta‑Modell NUR auf Val‑Fold trainieren (reduziert Leakage / Overfitting)
+
         meta_ds   = MetaDataset(preds_val, self.y_val)
         meta_args = TrainingArguments(
-            output_dir                  = "meta_runs",
+            output_dir              = "meta_runs",
             per_device_train_batch_size = 128,
-            num_train_epochs            = 10,
-            learning_rate               = 1e-3,
-            fp16                        = torch.cuda.is_available(),
-            logging_steps               = 50,
-            report_to                   = []   # ← FIX: '=' eingefügt
+            num_train_epochs        = meta_epochs,
+            learning_rate           = 1e-3,
+            no_cuda                 = True,
+            fp16                    = False,
+            logging_steps           = 50,
+            report_to               = [],
+            eval_strategy           = IntervalStrategy.EPOCH,
+            save_strategy           = IntervalStrategy.EPOCH,   # 🆕
         )
 
-
-        self.meta = MetaTransformer(self.cfg, n_models=preds_val.shape[1]).to(device)
-        Trainer(model=self.meta,
-                args=meta_args,
-                train_dataset=meta_ds,
-                data_collator=meta_collate).train()
-
+        self.meta = MetaTransformer(self.cfg, n_models=preds_val.shape[1]).to(self.device)
+        trainer = Trainer(model=self.meta, args=meta_args, train_dataset=meta_ds, data_collator=meta_collate)
+        trainer.train()
+        # Speicher freigeben nach dem Meta-Training
+        del trainer, meta_ds, preds_val
+        torch.cuda.empty_cache(); gc.collect()
         class Dummy: best_params = {}
         return Dummy()
 

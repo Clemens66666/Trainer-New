@@ -1,30 +1,52 @@
-import torch, torch.nn as nn
-from torch.nn import TransformerEncoder, TransformerEncoderLayer
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
 
 class MetaTransformer(nn.Module):
-    def __init__(self, cfg, n_models: int):
-        super().__init__()
-        d_token = cfg["meta"]["d_token"]
-        self.input_proj = nn.Linear(1, d_token)
-        enc_layer = TransformerEncoderLayer(
-            d_model=d_token, nhead=4,
-            dim_feedforward=4*d_token,
-            dropout=cfg["meta"]["attn_dropout"])
-        self.encoder = TransformerEncoder(enc_layer,
-                                          num_layers=cfg["meta"]["n_blocks"])
-        self.head = nn.Sequential(
-            nn.Linear(d_token, cfg["meta"]["hidden"]),
-            nn.ReLU(),
-            nn.Linear(cfg["meta"]["hidden"], 1))
-        self.n_models = n_models
+    """
+    Kleine Transformer-Architektur für das Meta-Ensembling.
+    Robust gegen fehlende 'meta'-Einträge in der Config:
+    - d_token   : Dimension der Token-Einbettung (Default = 64)
+    - n_blocks  : Anzahl Transformer-Blöcke      (Default = 2)
+    - d_ff      : Größe des Feed-Forward-Layers  (Default = 256)
+    - dropout   : Dropout-Rate                  (Default = 0.10)
+    """
 
-    def forward(self, model_preds, labels=None):
-        x = model_preds.unsqueeze(-1)             # [B, K, 1]
-        x = self.input_proj(x)                    # [B, K, d]
-        x = x.permute(1, 0, 2)                    # [K, B, d]
-        enc = self.encoder(x).mean(dim=0)         # [B, d]
-        logits = self.head(enc).squeeze(-1)       # [B]
-        loss = None
-        if labels is not None:
-            loss = nn.BCEWithLogitsLoss()(logits, labels)
-        return {"logits": logits, "loss": loss}
+    def __init__(self, cfg: dict, n_models: int):
+        super().__init__()
+
+        # ---- Konfig auslesen mit Fallbacks ----
+        meta_cfg  = cfg.get("meta", {})
+        d_token   = meta_cfg.get("d_token",   64)
+        n_blocks  = meta_cfg.get("n_blocks",   2)
+        d_ff      = meta_cfg.get("d_ff",     256)
+        dropout   = meta_cfg.get("dropout", 0.10)
+
+        self.embed = nn.Linear(n_models, d_token)
+
+        blocks = []
+        for _ in range(n_blocks):
+            blocks.append(nn.TransformerEncoderLayer(
+                d_model   = d_token,
+                nhead     = 4,
+                dim_feedforward = d_ff,
+                dropout   = dropout,
+                batch_first = True,
+            ))
+        self.transformer = nn.Sequential(*blocks)
+        self.head = nn.Linear(d_token, 1)
+
+    def forward(self, x, labels=None):
+        """
+        x : Tensor [B, n_models]  – gestapelte Basis-Vorhersagen
+        """
+        # [B, 1, n_models]  → [B, 1, d_token]
+        tok = self.embed(x.unsqueeze(1))
+        # [B, 1, d_token]   → [B, 1, d_token]
+        out = self.transformer(tok)
+        # [B, 1, 1]         → [B]
+        logits = self.head(out).squeeze(-1).squeeze(-1)
+        if labels is None:
+            return {"logits": logits}
+        loss = F.binary_cross_entropy_with_logits(logits, labels.float())
+        return {"loss": loss, "logits": logits}
