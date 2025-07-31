@@ -1,27 +1,42 @@
-# prepare_entry.py  – Labels „lokales Hoch / Tief in den nächsten 15 min“
 import pandas as pd
-from pathlib import Path
-from features_utils import load_ticks, make_minute_bars      # 1‑Min‑Bars gen
-RAW_TICKS = Path("data/RawTickData3.txt")
-OUT_CSV   = Path("data/longtrend_entry.csv")
+from .labeling import make_labels_entry          # ⇦ analog zu longtrend
+from .features import add_time_features, make_indicators
 
-WIN_MIN   = 15                     # Fensterbreite
-def main():
-    ticks = load_ticks(RAW_TICKS)
-    bars  = make_minute_bars(ticks)                # 1‑Min‑OHLCV
-    bars["close_fwd_max"] = bars["Close"].rolling(WIN_MIN,  center=False).max().shift(-WIN_MIN)
-    bars["close_fwd_min"] = bars["Close"].rolling(WIN_MIN,  center=False).min().shift(-WIN_MIN)
+def prepare_entry(df_raw: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """
+    1.  Bereitet Roh-Tickdaten für das Entry-Modell auf
+    2.  Setzt Binary-Labels via `make_labels_entry`
+    3.  Liefert ein sauberes DataFrame mit Features + label-Spalte
+    """
+    # ---------- 1) Grund-Preprocessing ----------
+    df = df_raw.copy()
 
-    cond_high = bars["close_fwd_max"] - bars["Close"] <= 0      # aktueller Close ist das Hoch des Fensters
-    cond_low  = bars["Close"] - bars["close_fwd_min"] <= 0      # aktueller Close ist das Tief des Fensters
+    # Zeit-basierte Features (gleiche Funktion wie in prepare_longtrend)
+    if cfg["features"].get("time_features", True):
+        df = add_time_features(df)
 
-    bars["label_entry"] = 0
-    bars.loc[cond_high, "label_entry"] = 1      # Hoch   → Short‑Setup
-    bars.loc[cond_low,  "label_entry"] = 2      # Tief   → Long‑Setup
+    # Technische Indikatoren
+    inds = cfg["features"]["indicators"]
+    df = make_indicators(df, inds)
 
-    bars.drop(columns=["close_fwd_*"], inplace=True, errors="ignore")
-    bars.to_csv(OUT_CSV, index=False)
-    print(f"✅ Gespeichert: {OUT_CSV}  ({len(bars)} Zeilen)")
+    # Window-Aggregationen (z. B. rolling mean/vol)
+    for w in cfg["features"]["window_sizes"]:
+        df[f"ret_mean_{w}"] = df["close"].pct_change().rolling(w).mean()
+        df[f"ret_std_{w}"]  = df["close"].pct_change().rolling(w).std()
 
-if __name__ == "__main__":
-    main()
+    # ---------- 2) Label-Erstellung ----------
+    lbl_cfg   = cfg["entry"]                       # ATR-Window, tp/sl/horizon …
+    df["label"] = make_labels_entry(               # TRUE = Entry-Signal
+        close       = df["close"].to_numpy(),
+        atr         = df["atr_14"].to_numpy(),     # schon in make_indicators
+        atr_window  = lbl_cfg["atr_window"],
+        tp_mul      = lbl_cfg["tp_mul"],
+        sl_mul      = lbl_cfg["sl_mul"],
+        horizon     = lbl_cfg["horizon"],
+        execute_p   = lbl_cfg["execute_p"],
+    )
+
+    # ---------- 3) NaN-Bereinigung ----------
+    df = df.dropna().reset_index(drop=True)
+
+    return df

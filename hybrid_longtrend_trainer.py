@@ -38,6 +38,32 @@ class NumpyDataset(Dataset):
         self.X, self.y = X, y
     def __len__(self):          return len(self.y)
     def __getitem__(self, idx): return {"x_num": self.X[idx], "label": self.y[idx]}
+# ──────────────────────────── MetaDataset ─────────────────────────────
+class MetaDataset(Dataset):
+    """
+    Liefert für jeden Sample ein Dict mit Schlüsseln, die
+    `meta_collate` erwartet:  {"preds": ..., "label": ...}
+
+    Parameters
+    ----------
+    preds : np.ndarray  [N, n_models]
+        Gestapelte Basis-Vorhersagen.
+    labels : np.ndarray  [N]
+        Ground-Truth-Labels (0/1).
+    """
+    def __init__(self, preds: np.ndarray, labels: np.ndarray):
+        assert len(preds) == len(labels), "preds und labels müssen gleiche Länge haben"
+        self.preds  = preds.astype(np.float32)
+        self.labels = labels.astype(np.float32)
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __getitem__(self, idx: int):
+        return {
+            "preds":  self.preds[idx],   # Shape: [n_models]
+            "label":  self.labels[idx],  # Scalar (0/1)
+        }
 
 # ───── Focal‑Loss (binary) ───────────────────────────────────────────
 class FocalLoss(nn.Module):
@@ -507,8 +533,8 @@ class HybridLongTrendTrainer(BaseTrainer):
             fp16                    = False,
             logging_steps           = 50,
             report_to               = [],
-            eval_strategy           = IntervalStrategy.EPOCH,
-            save_strategy           = IntervalStrategy.EPOCH,   # 🆕
+            eval_strategy           = IntervalStrategy.NO,   # 👈  keine Eval
+            save_strategy           = IntervalStrategy.NO,   # 👈  kein Autosave
         )
 
         self.meta = MetaTransformer(self.cfg, n_models=preds_val.shape[1]).to(self.device)
