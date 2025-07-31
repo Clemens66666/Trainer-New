@@ -1,41 +1,30 @@
-{'loss': 0.1283, 'grad_norm': 0.04298216477036476, 'learning_rate': 2.0101634294592037e-07, 'epoch': 7.89}
-{'loss': 0.1299, 'grad_norm': 0.04545285925269127, 'learning_rate': 9.739967132431193e-08, 'epoch': 7.95}
-{'train_runtime': 168518.2218, 'train_samples_per_second': 1.309, 'train_steps_per_second': 0.041, 'train_loss': 0.12215324849097746, 'epoch': 8.0}
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 6896/6896 [46:48:38<00:00, 24.44s/it] 
-[LightGBM] [Info] Number of positive: 13608, number of negative: 13964
-[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.021607 seconds.
-You can set `force_col_wise=true` to remove the overhead.
-[LightGBM] [Info] Total Bins 49656
-[LightGBM] [Info] Number of data points in the train set: 27572, number of used features: 240
-[LightGBM] [Info] [binary:BoostFromScore]: pavg=0.493544 -> initscore=-0.025825
-[LightGBM] [Info] Start training from score -0.025825
-[LightGBM] [Info] Number of positive: 13513, number of negative: 14059
-[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.019920 seconds.
-You can set `force_col_wise=true` to remove the overhead.
-[LightGBM] [Info] Total Bins 49656
-[LightGBM] [Info] Number of data points in the train set: 27572, number of used features: 240
-[LightGBM] [Info] [binary:BoostFromScore]: pavg=0.490099 -> initscore=-0.039611
-[LightGBM] [Info] Start training from score -0.039611
-[LightGBM] [Info] Number of positive: 13606, number of negative: 13966
-[LightGBM] [Info] Auto-choosing col-wise multi-threading, the overhead of testing was 0.020095 seconds.
-You can set `force_col_wise=true` to remove the overhead.
-[LightGBM] [Info] Total Bins 49656
-[LightGBM] [Info] Number of data points in the train set: 27572, number of used features: 240
-[LightGBM] [Info] [binary:BoostFromScore]: pavg=0.493472 -> initscore=-0.026115
-[LightGBM] [Info] Start training from score -0.026115
-Traceback (most recent call last):
-  File "C:\trainers\train.py", line 67, in <module>
-    main()
-  File "C:\trainers\train.py", line 63, in main
-    trainer.run()
-  File "C:\trainers\trainers\base.py", line 59, in run
-    study         = self.optimize(X_feat, y)
-                    ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\trainers\trainers\hybrid_longtrend_trainer.py", line 489, in optimize
-    self._predict_ft_logits(X_val_flat),
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\trainers\trainers\hybrid_longtrend_trainer.py", line 277, in _predict_ft_logits
-    device=self.device         # self.device ist cpu | cuda
-           ^^^^^^^^^^^
-AttributeError: 'HybridLongTrendTrainer' object has no attribute 'device'
-(ml-env) PS C:\trainers>      
+(ml-env) PS C:\trainers> python train.py --cfg config.yaml --type hybrid --ssl-weights ft_ssl.pt
+▶  Starte hybrid_longtrend_trainer.HybridLongTrendTrainer mit C:\trainers\config.yaml
+C:\trainers\utils\features.py:99: FutureWarning: DataFrame.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  df.fillna(method="bfill", inplace=True)
+C:\trainers\utils\features.py:100: FutureWarning: DataFrame.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  df.fillna(method="ffill", inplace=True)
+C:\trainers\utils\dataset.py:24: FutureWarning: A value is trying to be set on a copy of a DataFrame or Series through chained assignment using an inplace method.
+The behavior will change in pandas 3.0. This inplace method will never work because the intermediate object on which we are setting values always behaves as a copy.
+
+For example, when doing 'df[col].method(value, inplace=True)', try using 'df.method({col: value}, inplace=True)' or df[col] = df[col].method(value) instead, to perform the operation inplace on the original object.        
+
+
+  df["label"].fillna(0.0, inplace=True)
+[I 2025-07-31 17:06:36,165] A new study created in memory with name: no-name-8d6a680e-556b-4621-8318-dbcc285dea5c
+The installed version of bitsandbytes was compiled without GPU support. 8-bit optimizers and GPU quantization are unavailable.
+C:\trainers\ml-env\Lib\site-packages\transformers\training_args.py:1604: FutureWarning: using `no_cuda` is deprecated and will be removed in version 5.0 of 🤗 Transformers. Use `use_cpu` instead
+  warnings.warn(
+{'loss': 0.1947, 'grad_norm': 0.020521439611911774, 'learning_rate': 1.6784889014109723e-06, 'epoch': 0.07}
+{'loss': 0.1958, 'grad_norm': 0.02060028910636902, 'learning_rate': 1.5475615300060603e-06, 'epoch': 0.14}
+{'loss': 0.1942, 'grad_norm': 0.029195768758654594, 'learning_rate': 1.4166341586011481e-06, 'epoch': 0.22}
+{'loss': 0.1945, 'grad_norm': 0.022220784798264503, 'learning_rate': 1.2857067871962361e-06, 'epoch': 0.29}
+{'loss': 0.1916, 'grad_norm': 0.01952018029987812, 'learning_rate': 1.1547794157913241e-06, 'epoch': 0.36}
+{'loss': 0.1929, 'grad_norm': 0.04115518182516098, 'learning_rate': 1.023852044386412e-06, 'epoch': 0.43}
+{'loss': 0.1941, 'grad_norm': 0.036632515490055084, 'learning_rate': 8.929246729815e-07, 'epoch': 0.51}
+{'loss': 0.1941, 'grad_norm': 0.02738921158015728, 'learning_rate': 7.619973015765881e-07, 'epoch': 0.58}
+{'loss': 0.1936, 'grad_norm': 0.03614040091633797, 'learning_rate': 6.31069930171676e-07, 'epoch': 0.65}
+ 69%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▎                                                        | 474/690 [28:39<12:54,  3.59s/it] 
+
+
+ durchlauf noch am laufen 
