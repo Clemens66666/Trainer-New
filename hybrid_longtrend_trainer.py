@@ -19,6 +19,7 @@ from transformers import EarlyStoppingCallback
 # ganz oben in hybrid_longtrend_trainer.py ➜ Import‑Block ergänzen
 from transformers.trainer_utils import IntervalStrategy
 
+
 from rtdl import FTTransformer
 from peft import LoraConfig, get_peft_model
 
@@ -38,7 +39,7 @@ class NumpyDataset(Dataset):
         self.X, self.y = X, y
     def __len__(self):          return len(self.y)
     def __getitem__(self, idx): return {"x_num": self.X[idx], "label": self.y[idx]}
-# ──────────────────────────── MetaDataset ─────────────────────────────
+
 class MetaDataset(Dataset):
     """
     Liefert für jeden Sample ein Dict mit Schlüsseln, die
@@ -64,6 +65,7 @@ class MetaDataset(Dataset):
             "preds":  self.preds[idx],   # Shape: [n_models]
             "label":  self.labels[idx],  # Scalar (0/1)
         }
+
 
 # ───── Focal‑Loss (binary) ───────────────────────────────────────────
 class FocalLoss(nn.Module):
@@ -136,11 +138,6 @@ class SimpleCNN(nn.Module):
     def forward(self, x):                                     # x: [B, n_feat, L]
         return self.net(x).squeeze(-1)                        # -> [B]
 
-
-class MetaDataset(Dataset):
-    def __init__(self, preds, y): self.preds, self.y = preds, y
-    def __len__(self): return len(self.y)
-    def __getitem__(self,i): return {"preds":self.preds[i],"labels":self.y[i]}
 
 # ──────────────────────── Trainer‑Klasse ───────────────────────────
 # ───────────────────────── HybridLongTrendTrainer ──────────────────────────
@@ -403,7 +400,7 @@ class HybridLongTrendTrainer(BaseTrainer):
                 )
 
         args = TrainingArguments(
-            output_dir              = "opt_ft_tmp",
+            output_dir              = f"{self.model_tag}_opt_ft_tmp",
             per_device_train_batch_size = 32,
             num_train_epochs        = optuna_epochs,
             learning_rate           = hp["lr"],
@@ -472,7 +469,7 @@ class HybridLongTrendTrainer(BaseTrainer):
         # Finales Training auf voller Trainingsmenge (auf CPU, ohne FP16)
         final_ds   = NumpyDataset(Xf, y)
         final_args = TrainingArguments(
-            output_dir              = "ft_final",
+            output_dir              = f"{self.model_tag}_ft_final",
             per_device_train_batch_size = 32,
             num_train_epochs        = ft_epochs,
             learning_rate           = best["lr"],
@@ -523,9 +520,10 @@ class HybridLongTrendTrainer(BaseTrainer):
         meta_epochs = self.cfg.get("meta", {}).get("num_train_epochs", 10)   # 🆕 konfigurierbar
 
 
-        meta_ds   = MetaDataset(preds_val, self.y_val)
+        meta_ds = MetaDataset(preds_val, self.y_val)   # ← liefert dict {"preds": …}
+
         meta_args = TrainingArguments(
-            output_dir              = "meta_runs",
+            output_dir              = f"{self.model_tag}_meta_runs",
             per_device_train_batch_size = 128,
             num_train_epochs        = meta_epochs,
             learning_rate           = 1e-3,
