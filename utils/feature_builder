@@ -1,0 +1,8 @@
+# utils/feature_builder.py
+import pandas as pd
+
+def build_features(bars: pd.DataFrame) -> pd.DataFrame:
+    """Legacy‑kompatible Feature‑Matrix: alle numerischen Bar‑Spalten außer TimeStamp."""
+    if "TimeStamp" in bars.columns:
+        bars = bars.drop(columns=["TimeStamp"])
+    return bars.select_dtypes("number")
