@@ -61,63 +61,168 @@ def _softmax(x: np.ndarray, tau: float = 1.0) -> np.ndarray:
 # ---------------------------------------------------------------------
 # 1  – Trend labels
 # ---------------------------------------------------------------------
-def _trend_scan(logp: np.ndarray, windows: List[int], tau: float
-               ) -> Tuple[int, float, float]:
+from typing import List, Tuple
+import numpy as np
+from scipy import stats
+
+from typing import List, Tuple
+import numpy as np
+from scipy import stats
+
+def _trend_scan(
+        logp: np.ndarray,
+        windows: List[int],
+        tau: float
+) -> Tuple[int, int, float]:
     """
-    Return best window k, side (+1/‑1/0) and annualised β.
+    Scannt mehrere Fensterlängen und gibt (best_k, side, annual_beta) zurück.
+    logp darf auch 2-D sein – wird intern zu 1-D geflattet.
     """
+    # ---- Robust: immer in 1-D wandeln ------------------------------
+    logp = np.asarray(logp, dtype=float).reshape(-1)
+    n = len(logp)
+
     best_t, best_k, best_beta = 0.0, 0, 0.0
+
     for k in windows:
-        if k >= len(logp):  # end of series
-            break
-        y = logp[-k:]
-        x = np.arange(k)
+        # mindestens 2 Punkte & Fenster muss in Serie passen
+        if k <= 1 or k > n:
+            continue
+
+        y = logp[-k:]                       # Länge k, 1-D
+        x = np.arange(k, dtype=float)
+
         slope, _, r, _, stderr = stats.linregress(x, y)
         t = slope / stderr if stderr else 0.0
+
         if abs(t) > abs(best_t):
             best_t, best_k, best_beta = t, k, slope
-    if abs(best_t) >= tau:
+
+    # Trendrichtung ermitteln
+    if abs(best_t) >= tau and best_k > 0:
         side = int(np.sign(best_beta))
     else:
-        side = 0
+        side, best_beta = 0, 0.0
+
     return best_k, side, _annualise_beta(best_beta)
 
-def _directional_change(prices: pd.Series, threshold: float
-                       ) -> pd.Series:
+from typing import List, Union
+import numpy as np
+import pandas as pd
+
+
+def _directional_change(
+        price: Union[pd.Series, pd.DataFrame, np.ndarray, List[float]],
+        thresh: float
+) -> pd.Series:
     """
-    Very light DC phase flag:
-        0 = normal / trend, 1 = overshoot, 2 = end‐phase
+    Bestimmt die Directional-Change-Phase (-1, 0, +1) für eine Preisreihe.
+
+    Parameters
+    ----------
+    price  : Series | DataFrame | ndarray | list
+        Preiszeitreihe. Darf auch ein einspaltiges DataFrame oder
+        eine Python-Liste sein. Mehr als eine Spalte → ValueError.
+    thresh : float
+        Schwellenwert in Prozent (%). Bewegung ≥ +thresh -> +1,
+        ≤ -thresh -> -1, sonst 0.
+
+    Returns
+    -------
+    dc : pd.Series[int]
+        Gleiche Länge wie `price`, enthält -1/0/+1.
     """
-    dc = np.zeros(len(prices), dtype=int)
-    ref = prices.iloc[0]
-    mode = 0  # 0 = up‑move, 1 = down‑move
-    last_idx = 0
-    for i, p in enumerate(prices):
-        move = (p / ref - 1) * 100  # %
-        trigger = threshold if mode == 0 else -threshold
-        if (mode == 0 and move >= trigger) or (mode == 1 and move <= trigger):
-            # directional change event
-            dc[last_idx:i + 1] = 1  # overshoot
+    # ---------- 1) Eingabe robust auf 1-D transformieren --------------
+    if isinstance(price, pd.DataFrame):
+        if price.shape[1] != 1:
+            raise ValueError(
+                f"_directional_change erwartet höchstens 1 Spalte, "
+                f"bekam aber {price.shape[1]}."
+            )
+        price = price.iloc[:, 0]          # DataFrame -> Series
+
+    if not isinstance(price, pd.Series):
+        # deckt ndarray, list, tuple usw. ab
+        price = pd.Series(price)
+
+    # ---------- 2) Numerisch casten & Lücken füllen -------------------
+    price = pd.to_numeric(price, errors="coerce").astype(np.float64).ffill()
+
+    # ---------- 3) Früher Ausstieg, falls Serie leer ------------------
+    if price.empty:
+        return pd.Series(dtype=np.int8, name="dc_phase")
+
+    # ---------- 4) DC-Berechnung -------------------------------------
+    phase = np.zeros(len(price), dtype=np.int8)
+    ref = price.iloc[0]
+
+    for i, p in enumerate(price):
+        move_pct = (p / ref - 1.0) * 100.0
+
+        if move_pct >= thresh:
+            phase[i] =  1
             ref = p
-            mode ^= 1
-            last_idx = i + 1
-    dc[last_idx:] = 2  # end‑phase tail
-    return pd.Series(dc, index=prices.index)
+        elif move_pct <= -thresh:
+            phase[i] = -1
+            ref = p
+        else:
+            phase[i] =  0
 
-def make_trend_labels(df: pd.DataFrame) -> pd.DataFrame:
-    w_list   : List[int]  = P["trend"]["windows"]
-    tau      : float      = P["trend"]["t_stat_thresh"]
-    dc_thres : float      = P["trend"]["dc_threshold_pct"]
+    return pd.Series(phase, index=price.index, name="dc_phase")
 
-    logp = np.log(df["price"].values)
-    rows = []
-    for i in range(len(df)):
-        k, side, beta = _trend_scan(logp[:i+1], w_list, tau)
-        rows.append((df.index[i], side, beta, k))
-    trend = pd.DataFrame(rows, columns=["ts", "side", "beta", "window"]).set_index("ts")
 
-    trend["dc_phase"] = _directional_change(df["price"], dc_thres).values
+# ────────────────────────────────────────────────────────────────────────────────
+# Ausschnitt aus labeling.py – Funktion make_trend_labels
+# ------------------------------------------------------------------------------
+def make_trend_labels(
+        df: pd.DataFrame,
+        dc_thres: float,
+        w_list: List[int],
+        tau: float
+) -> pd.DataFrame:
+    """
+    Erzeugt Trend-Labels (Directional Change + Trend-Scan).
+    Gibt DataFrame mit Spalten 'dc_phase', 'trend_side', 'beta_ann' zurück.
+    """
+    trend = pd.DataFrame(index=df.index)
+
+    # --------------------------------------------------------------------------
+    # DC-Phase berechnen – Variante 2: Falls 'price' ein DataFrame mit
+    # mehreren Spalten ist, Mittelwert über alle Spalten verwenden
+    # --------------------------------------------------------------------------
+    price_obj = df["price"]
+
+    # Falls 'price' ein DataFrame (mehrere Spalten) ist, → Mittelwert
+    if isinstance(price_obj, pd.DataFrame):
+        # Mittelwert über alle Spalten (z. B. Bid/Ask -> Mid-Price)
+        price_input = price_obj.mean(axis=1)
+    else:
+        # Series oder 1-D-Array: unverändert übernehmen
+        price_input = price_obj
+
+    # Directional-Change-Phase in -1 / 0 / +1
+    trend["dc_phase"] = _directional_change(price_input, dc_thres).values
+
+    # --------------------------------------------------------------------------
+    # Trend-Scan (k, side, beta) für jedes Zeitfenster i
+    # --------------------------------------------------------------------------
+    logp = np.log(df["price"].iloc[:, 0] if isinstance(df["price"], pd.DataFrame)
+                  else df["price"].values.astype(float))
+
+    k_list, side_list, beta_list = [], [], []
+    for i in range(len(logp)):
+        k, side, beta = _trend_scan(logp[: i + 1], w_list, tau)
+        k_list.append(k)
+        side_list.append(side)
+        beta_list.append(beta)
+
+    trend["trend_k"]    = k_list
+    trend["trend_side"] = side_list
+    trend["beta_ann"]   = beta_list
+
     return trend
+# ────────────────────────────────────────────────────────────────────────────────
+
 
 # ---------------------------------------------------------------------
 # 2  – Entry labels

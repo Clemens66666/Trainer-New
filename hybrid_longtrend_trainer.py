@@ -7,6 +7,7 @@ import torch.optim as optim
 import gc, optuna, psutil, math
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 from torch.utils.data import Dataset, DataLoader
 from sklearn.ensemble import RandomForestClassifier
@@ -40,30 +41,46 @@ class NumpyDataset(Dataset):
     def __len__(self):          return len(self.y)
     def __getitem__(self, idx): return {"x_num": self.X[idx], "label": self.y[idx]}
 
+# utils/meta_dataset.py
+import numpy as np
+from torch.utils.data import Dataset
+
 class MetaDataset(Dataset):
     """
-    Liefert für jeden Sample ein Dict mit Schlüsseln, die
-    `meta_collate` erwartet:  {"preds": ..., "label": ...}
+    Dataset für das Stacking-Meta-Modell.
 
-    Parameters
-    ----------
-    preds : np.ndarray  [N, n_models]
-        Gestapelte Basis-Vorhersagen.
-    labels : np.ndarray  [N]
-        Ground-Truth-Labels (0/1).
+    Jeder Eintrag liefert
+        • "preds"  – np.ndarray float32 [n_models]
+        • "labels" – float32            (0 / 1)
+
+    Beim Anlegen werden alle Samples verworfen, für die
+    kein Vorhersagevektor existiert (None oder Länge 0).
     """
-    def __init__(self, preds: np.ndarray, labels: np.ndarray):
-        assert len(preds) == len(labels), "preds und labels müssen gleiche Länge haben"
-        self.preds  = preds.astype(np.float32)
-        self.labels = labels.astype(np.float32)
 
+    def __init__(self, preds: np.ndarray, labels: np.ndarray):
+        # Grund-Check: gleiche Sample-Anzahl
+        assert len(preds) == len(labels), (
+            f"preds len={len(preds)}  labels len={len(labels)} – mismatch!"
+        )
+
+        # --- Maskiere ungültige Samples ---------------------------------
+        mask = np.array([p is not None and len(p) > 0 for p in preds])
+        missing = (~mask).sum()
+        if missing:
+            print(f"⚠️  MetaDataset: {missing} Samples ohne Vorhersagevektor entfernt.")
+
+        # Nur gültige Datensätze behalten
+        self.preds  = preds [mask].astype(np.float32)
+        self.labels = labels[mask].astype(np.float32)
+
+    # -------------------------------------------------------------------
     def __len__(self) -> int:
         return len(self.labels)
 
     def __getitem__(self, idx: int):
         return {
-            "preds":  self.preds[idx],   # Shape: [n_models]
-            "label":  self.labels[idx],  # Scalar (0/1)
+            "preds":  self.preds[idx],   # shape (n_models,)
+            "labels": self.labels[idx],  # Skalar
         }
 
 
@@ -146,7 +163,14 @@ class HybridLongTrendTrainer(BaseTrainer):
         super().__init__(cfg_path)
         # Alle Operationen auf CPU erzwingen (GPU vollständig deaktivieren)
         self.device = torch.device("cpu")
+        # ── 2) Verzeichnis & Tag für gespeicherte Modelle ─────────────
+        exp_name           = self.cfg.get("exp_name", "hybrid_longtrend")
+        timestamp          = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.model_tag     = f"{exp_name}_{timestamp}"
 
+        out_root           = Path(self.cfg.get("output_root", "models"))
+        self.model_dir     = out_root / self.model_tag
+        self.model_dir.mkdir(parents=True, exist_ok=True)
 # ───────────────────────────── Daten laden ──────────────────────────────
     def load_data(self):
         num_cols = [
@@ -408,8 +432,8 @@ class HybridLongTrendTrainer(BaseTrainer):
             no_cuda                 = True,
             fp16                    = False,
             logging_steps           = 50,
-            report_to               = [],
-            eval_strategy           = IntervalStrategy.EPOCH,
+            report_to               = [], 
+            eval_strategy           = IntervalStrategy.EPOCH,   # ✅  war vorher “NO” bzw. fehlte
             save_strategy           = IntervalStrategy.EPOCH,   # Save = Eval
             load_best_model_at_end  = True,
             metric_for_best_model   = "eval_loss",
@@ -478,7 +502,7 @@ class HybridLongTrendTrainer(BaseTrainer):
             fp16                    = False,
             logging_steps           = 50,
             report_to               = [],
-            eval_strategy           = IntervalStrategy.NO,     # 👈  KEINE Eval
+            eval_strategy           = IntervalStrategy.NO, 
             save_strategy           = IntervalStrategy.NO,     # 👈  KEIN autosave
         )
 
@@ -518,7 +542,9 @@ class HybridLongTrendTrainer(BaseTrainer):
         # ③ Meta-Modell nur auf dem Val-Fold trainieren
         # ---------- Meta-Training ----------
         meta_epochs = self.cfg.get("meta", {}).get("num_train_epochs", 10)   # 🆕 konfigurierbar
-
+        # 🔎 ***Sanity-Checks einfügen***
+        assert not np.isnan(preds_val).any(), "NaN in preds_val"
+        assert preds_val.shape[0] == len(self.y_val), "Shape mismatch preds_val / y_val"
 
         meta_ds = MetaDataset(preds_val, self.y_val)   # ← liefert dict {"preds": …}
 
@@ -531,7 +557,7 @@ class HybridLongTrendTrainer(BaseTrainer):
             fp16                    = False,
             logging_steps           = 50,
             report_to               = [],
-            eval_strategy           = IntervalStrategy.NO,   # 👈  keine Eval
+            eval_strategy           = IntervalStrategy.NO, 
             save_strategy           = IntervalStrategy.NO,   # 👈  kein Autosave
         )
 
