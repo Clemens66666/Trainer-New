@@ -1,308 +1,584 @@
 #!/usr/bin/env python
-# evaluate.py
+# evaluate_plus.py
 """
-Hybrid-LongTrend – Evaluation & Batch-Inference
-Usage:
-    python evaluate.py ^
-        --model-dir models\hybrid_longtrend_20250802_184344 ^
-        --test-file data\rawtickdata3.txt ^
-        --seq-len   24 ^
-        --bar-min   60
-"""
-from __future__ import annotations
-import argparse, sys, json, pickle
-from pathlib import Path
-from typing  import List
+Generische Evaluations-Pipeline für ML-Trading-Modelle
 
-import yaml
+Funktionen
+----------
+* Ladet Tick- oder Kerz­endaten, resampelt optional in Minuten-Bars
+* Erzeugt Trend-Labels (Directional-Change-Methode)
+* Berechnet technische Features (nutzt utils.features.enrich)
+* Baut Sequenzen und ruft passende Modell-Komponenten auf
+* Aggregiert Vorhersagen, führt Meta-Ensemble aus (falls vorhanden)
+* Gibt Klassifikations- sowie Trading-Metriken aus
+* Erstellt optionale Visualisierungen und Feature-Analysen
+* Unterstützt mehrere --model-dir Angaben für Modell­vergleich
+
+Abhängigkeiten: pandas, numpy, PyYAML, scikit-learn, torch, rtdl, matplotlib,
+seaborn (nur für Plots), joblib (Pickle), tqdm (Progress-Bar)
+
+Beispiel
+--------
+python evaluate_plus.py \
+    --model-dir models/hybrid_20250802 \
+    --test-file data/rawtickdata3.txt \
+    --seq-len 24 --bar-min 60 \
+    --plots
+"""
+# ---------------------------------------------------------------------------
+
+import argparse, json, yaml, sys, inspect, pickle, math, textwrap, warnings
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
-    accuracy_score, roc_auc_score, classification_report,
-    confusion_matrix,
+    accuracy_score, roc_auc_score, confusion_matrix,
+    classification_report, precision_recall_curve, auc
 )
-
+from sklearn.preprocessing import StandardScaler
 import torch
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 
-# ───────────────── Pfade & lokale Utilities ───────────────────────────
-ROOT = Path(__file__).resolve().parent
-sys.path.append(str(ROOT))                # utils.*
-from utils.features import enrich
-from labeling        import make_trend_labels
+# Suppress noisy warnings (optional)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
-# ─────────────────────── Argument-Parsing ─────────────────────────────
-p = argparse.ArgumentParser()
-p.add_argument("--model-dir", required=True, type=Path)
-p.add_argument("--test-file", required=True, type=Path)
-p.add_argument("--seq-len",   type=int, default=24)
-p.add_argument("--bar-min",   type=int, default=5,
-               help="Aggregations­intervall (Minuten) bei Tick-Input")
-args = p.parse_args()
-
-# ──────────────── IMPORT-Fix für Trainer-Klassen ──────────────────────
-try:
-    # Paket-Installation mit Namespace 'trainers'
-    from trainers.hybrid_longtrend_trainer import (
-        FTWrapped as _FTWrapper,
-        SimpleCNN as _CNNEncoder,
-        MetaTransformer,
-    )
-except ModuleNotFoundError:
-    # Lokaler Modul-Import
-    from hybrid_longtrend_trainer import (
-        FTWrapped as _FTWrapper,
-        SimpleCNN as _CNNEncoder,
-        MetaTransformer,
-    )
-
-from rtdl import FTTransformer             # Backbone aus rtdl
-FTBackbone  = FTTransformer                # Alias
-FTWrapper   = _FTWrapper
-CNNEncoder  = _CNNEncoder
-
-# ─────────────── Chunk-Reader für große Tick-Dateien ──────────────────
-def iter_ticks_as_bars(path: Path, bar_min: int, chunksize: int = 2_000_000):
-    """Yield-Generator: Tick-CSV in Chunks → OHLCV-Bars"""
-    for ch in pd.read_csv(path, parse_dates=["Time"], chunksize=chunksize):
-        if {"Tick_Bid", "Tick_Ask"}.issubset(ch.columns):
-            ch["price"] = (ch["Tick_Bid"] + ch["Tick_Ask"]) / 2
-        else:
-            ch["price"] = ch["Tick_Last"]
-
-        ch = ch.rename(columns={"Time": "timestamp"}).set_index("timestamp")
-        bars = ch["price"].resample(f"{bar_min}min").ohlc()
-        bars["volume"] = ch["Tick_Volume"].resample(f"{bar_min}min").sum()
-        bars.dropna(inplace=True)
-        bars.columns = ["open", "high", "low", "close", "volume"]
-        yield bars.reset_index()
-
-def load_candles(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path, parse_dates=["timestamp"]) \
-             .set_index("timestamp")
-
-# Daten­quelle zu Iterator
-if args.test_file.suffix.lower() in {".txt", ".tick", ".dat"}:
-    bar_iter = iter_ticks_as_bars(args.test_file, args.bar_min)
-else:
-    bar_iter = [load_candles(args.test_file)]
-
-# ───────────────── Utility: JSON-oder-YAML-Fallback ──────────────────
-from typing import Dict, Any, List
+# ---------------------------------------------------------------------------
+# -----------------------------  Helper-Funktionen  -------------------------
+# ---------------------------------------------------------------------------
 
 def json_or_yaml(
-    json_path: Path,
-    yaml_keys: List[str] | None,
-    default: Dict[str, Any] | None = None,
+    file_path: Path,
+    yaml_keys: List[str],
+    cfg_fallback: Dict[str, Any],
+    encoding: str = "utf-8"
 ) -> Dict[str, Any]:
     """
-    Versucht zuerst, eine JSON-Datei zu laden. Gibt es die nicht, wird in der
-    bereits geladenen config.yaml (cfg_yaml) entlang der verschachtelten Keys
-    nachgeschaut. Ist auch dort nichts vorhanden, kommt `default` zurück.
+    1) Wenn *file_path* existiert -> JSON laden
+    2) Sonst versuche die Keys im globalen YAML-Dict cfg_fallback zu finden
+    3) Fehlt alles: gib leeres Dict zurück
     """
-    if json_path.exists():
-        return json.load(open(json_path))
-    cur: Dict[str, Any] = cfg_yaml
-    if yaml_keys:
-        for k in yaml_keys:
-            cur = cur.get(k, {}) if isinstance(cur, dict) else {}
-    return cur if cur else (default or {})
+    if file_path.exists():
+        with open(file_path, "r", encoding=encoding) as f:
+            return json.load(f)
+    # YAML-Pfad im Fallback nachschlagen
+    cur = cfg_fallback
+    for k in yaml_keys:
+        if isinstance(cur, dict) and k in cur:
+            cur = cur[k]
+        else:
+            return {}
+    return cur if isinstance(cur, dict) else {}
 
 
+def adapt_ft_cfg(ft_cfg: Dict[str, Any], cls) -> Dict[str, Any]:
+    """
+    Entfernt Keys, die der FTTransformer (oder Ersatz-Klasse) nicht kennt,
+    und mappt veraltete Namen (z.B. d_model -> d_token).
+    """
+    if not ft_cfg:
+        return {}
+    sig = inspect.signature(cls.__init__)
+    valid_keys = set(sig.parameters.keys())
+    mapping = {"d_model": "d_token"}  # Beispiel-Alias
+    adapted = {}
+    for k, v in ft_cfg.items():
+        k2 = mapping.get(k, k)
+        if k2 in valid_keys:
+            adapted[k2] = v
+    return adapted
 
-def adapt_ft_cfg(raw: dict) -> dict:
-    """Behält nur Keys, die der aktuelle FTTransformer wirklich akzeptiert.
-       Mapped 'd_token' → das erste passende Synonym im Signature."""
-    sig_keys = set(inspect.signature(FTBackbone).parameters)
+def filter_cfg(cfg: dict, cls):
+     """
+     Entfernt alle Keys, die der Ziel-Klasse nicht kennt – so vermeiden wir
+     TypeErrors wie 'unexpected keyword'.
+     """
+     if not cfg:
+         return {}
+     valid = set(inspect.signature(cls.__init__).parameters)
+     return {k: v for k, v in cfg.items() if k in valid}
 
-    cfg = {k: v for k, v in raw.items() if k in sig_keys}
-
-    # d_token → alternativer Name, falls nötig
-    if "d_token" in raw and "d_token" not in sig_keys:
-        for alt in ("d_model", "d_embed", "token_dim"):
-            if alt in sig_keys:
-                cfg[alt] = raw["d_token"]
-                break
-    return cfg
-
-# ───────────────────────── Modelle laden ──────────────────────────────
-# ───────────────────────── Modelle laden ──────────────────────────────
-def load_pickle(p: Path):
-    with open(p, "rb") as f: return pickle.load(f)
-
-md = args.model_dir
-cfg_yaml_path = md / "config.yaml"
-try:
-    with open(cfg_yaml_path, "r", encoding="utf-8") as f:   # ← Encoding fix
-        cfg_yaml = yaml.safe_load(f)
-except FileNotFoundError:
-    print("⚠  config.yaml fehlt – nutze Default-Parameter")
-    cfg_yaml = {}
-except UnicodeDecodeError as e:
-    raise RuntimeError(
-        f"{cfg_yaml_path} enthält Nicht-ASCII-Zeichen. "
-        "Speichere die Datei als UTF-8 oder öffne sie mit korrektem Encoding."
-    ) from e
-
-# ---------- FT --------------------------------------------------------
-import inspect
-
-def filter_cfg(cfg: Dict[str, Any], cls) -> Dict[str, Any]:
-    valid = inspect.signature(cls).parameters
-    return {k: v for k, v in cfg.items() if k in valid}
-
-ft_cfg_raw = json_or_yaml(md / "ft_cfg.json", ["model", "ft_params"], {})
-ft_cfg     = adapt_ft_cfg(ft_cfg_raw)
-
-# Fallback für rtdl<0.3: map d_token → d_model
-if "d_token" in ft_cfg_raw and "d_token" not in ft_cfg:
-    ft_cfg["d_model"] = ft_cfg_raw["d_token"]
+def mean_preds(pred_lists: List[np.ndarray]) -> np.ndarray:
+    """Mittelt eine Liste gleicher NumPy-Arrays (axis=0)"""
+    if not pred_lists:
+        return np.array([])
+    stacked = np.vstack(pred_lists)
+    return stacked.mean(axis=0)
 
 
-ft = FTBackbone(**ft_cfg)
-ft.load_state_dict(torch.load(md / "ft.pt", map_location="cpu"))
-ft.eval()
-
-ft_wrap = FTWrapper(ft)
-ft_wrap.load_state_dict(
-    torch.load(md / "ft_wrap.pt", map_location="cpu"), strict=False
-)
-ft_wrap.eval()
-
-# ---------- CNN -------------------------------------------------------
-cnn_cfg_path = md / "cnn_cfg.json"
-if cnn_cfg_path.exists():
-    cnn_cfg = json.load(open(cnn_cfg_path))
-    cnn = CNNEncoder(**cnn_cfg)
-    cnn.load_state_dict(torch.load(md / "cnn.pt", map_location="cpu"))
-    cnn.eval()
-else:
-    # kein cfg → Instanzierung verschieben, wenn wir die erste Feature-Matrix kennen
-    cnn      = None
-    cnn_cfg  = None
-    print("⚠  cnn_cfg.json nicht gefunden – CNN wird beim ersten Chunk erzeugt")
-
-# ---------- klassische Modelle ---------------------------------------
-rf_list  = load_pickle(md / "rf.pkl")
-lgb_list = load_pickle(md / "lgb.pkl")
-xgb_list = load_pickle(md / "xgb.pkl")
-
-# ---------- Meta-Transformer -----------------------------------------
-meta_cfg_path = md / "meta_cfg.json"
-if meta_cfg_path.exists():
-    meta_cfg = json.load(open(meta_cfg_path))
-else:
-    meta_cfg = cfg_yaml["meta"]                    # YAML-Fallback
-    print("⚠  meta_cfg.json nicht gefunden – nehme Parameter aus config.yaml")
-
-meta = MetaTransformer(**meta_cfg)
-meta.load_state_dict(torch.load(md / "meta.pt", map_location="cpu"))
-meta.eval()
+def load_pickle(path: Path):
+    """Kompatibles Laden für Pickles / joblib"""
+    if not path.exists():
+        return None
+    try:
+        import joblib
+        return joblib.load(path)
+    except Exception:
+        with open(path, "rb") as f:
+            return pickle.load(f)
 
 
-def mean_preds(models, X_flat, kind):
-    if kind == "rf":
-        return np.mean([m.predict_proba(X_flat)[:,1] for m in models], axis=0)
-    if kind == "lgb":
-        return np.mean([m.predict(X_flat) for m in models], axis=0)
-    if kind == "xgb":
-        return np.mean([m.predict_proba(X_flat)[:,1] for m in models], axis=0)
-    raise ValueError(kind)
+# ------------------  Daten-Utilities: Tick → Bar & Labeling  ---------------
 
-# ─────────── Trend-Hyperparameter (aus config.yaml) ───────────────────
-cfg_path = md / "config.yaml"
-if cfg_path.exists():
-    trend_cfg = yaml.safe_load(open(cfg_path))["trend"]
-else:
-    trend_cfg = {}
-dc_thres = trend_cfg.get("dc_threshold_pct", 0.05)
-w_list   = trend_cfg.get("windows",          [6,12,24,48,96])
-tau      = trend_cfg.get("t_stat_thresh",    2.2)
+# ---------------------------------------------------------------------------
+# Daten-Utility: Tick-Datei ➜ Minuten-Bars
+# ---------------------------------------------------------------------------
+def iter_ticks_as_bars(
+    tick_file: Path,
+    bar_min: int,
+    chunksize: int = 2_000_000,
+):
+    """
+    Liest eine große Tick-Datei stückweise ein und resampelt in OHLCV-Bars.
+    Erkennt viele verschiedene Kopfzeilen-Schreibweisen.
 
-# ───────────────────── Gesamtergebnis-Listen ──────────────────────────
-all_probs, all_labels = [], []
+    Erwartete Minimal-Spalten nach Umbenennung:
+        timestamp • price • volume
+    Preis_bid / price_ask werden optional als Extra-Features belassen.
+    """
+    # ------------------------------------------------------------
+    # 1) Lesestrategie: zuerst mit Standard-usecols, sonst Fallback
+    # ------------------------------------------------------------
+    read_kwargs = dict(
+        chunksize=chunksize,
+        low_memory=False,
+    )
 
-# ─────────────────────── Verarbeitung je Chunk ────────────────────────
-for df_raw in bar_iter:
-    # 1) Spalten-Alias & price
-    df_raw = df_raw.rename(
-        columns={c: "Close" for c in df_raw.columns
-                 if c.lower() in {"close","close_price"}})
-    if "price" not in df_raw and "Close" in df_raw:
-        df_raw["price"] = df_raw["Close"]
+    try:
+        chunk_iter = pd.read_csv(
+            tick_file,
+            usecols=["timestamp", "price", "volume"],
+            parse_dates=["timestamp"],
+            dtype={"price": "float64", "volume": "float64"},
+            **read_kwargs,
+        )
+    except ValueError:
+        # Header weicht ab → ohne usecols lesen, später umbenennen
+        chunk_iter = pd.read_csv(tick_file, **read_kwargs)
 
-    # 2) Labels
-    if "label" not in df_raw:
-        trend = make_trend_labels(df_raw.copy(), dc_thres, w_list, tau)
-        df_raw["label"] = (trend["trend_side"] == 1).astype(np.float32)
+    # ------------------------------------------------------------
+    # 2) Jeder Chunk wird vereinheitlicht und in Bars gewandelt
+    # ------------------------------------------------------------
+    for chunk in chunk_iter:
+        # ---------- a) Spalten umbenennen ----------
+        rename_map = {
+            # Zeitstempel-Aliase
+            "timestamp": "timestamp", "time": "timestamp",
+            "datetime": "timestamp", "date": "timestamp",
+            "datime": "timestamp",
 
-    # 3) Features
-    df_feat = enrich(df_raw).dropna()
+            # Preis-Aliase
+            "price": "price", "close": "price", "last": "price",
+            "bid": "price", "ask": "price",
+            "tick_last": "price", "tick_bid": "price_bid",
+            "tick_ask": "price_ask",
 
-        # nach: df_feat = enrich(df_raw).dropna()
-    if cnn is None:
-        cnn_cfg = {            # Minimal-Defaults jetzt sicher
-            "n_channels": df_feat.shape[1],
-            "n_conv":     3,
-            "ks":         3,
-            "pool":       2,
-            "emb_dim":    64,
+            # Volumen-Aliase
+            "volume": "volume", "size": "volume",
+            "qty": "volume", "tick_volume": "volume",
         }
-        cnn = CNNEncoder(**cnn_cfg)
-        cnn.load_state_dict(torch.load(md / "cnn.pt", map_location="cpu"))
+
+        chunk.rename(
+            columns={
+                c: rename_map[c.lower()]
+                for c in chunk.columns
+                if c.lower() in rename_map
+            },
+            inplace=True,
+        )
+
+        # Pflicht-Spalten prüfen
+        if "timestamp" not in chunk.columns:
+            raise ValueError(
+                f"Keine Zeitstempel-Spalte in {tick_file} gefunden!"
+            )
+        if "price" not in chunk.columns:
+            raise ValueError(
+                f"Keine Preis-Spalte in {tick_file} gefunden!"
+            )
+        # Volume not mandatory for price computations; set 0 if absent
+        if "volume" not in chunk.columns:
+            chunk["volume"] = 0.0
+
+        # ---------- b) Zeitstempel & Index ----------
+        chunk["timestamp"] = pd.to_datetime(chunk["timestamp"], errors="coerce")
+        chunk = chunk.set_index("timestamp").sort_index()
+        chunk = chunk[~chunk.index.duplicated(keep="last")]
+
+        # ---------- c) Numerische Spalten in float ----------
+        for num_col in ["price", "volume", "price_bid", "price_ask"]:
+            if num_col in chunk.columns:
+                chunk[num_col] = pd.to_numeric(
+                    chunk[num_col], errors="coerce"
+                )
+
+        # ---------- d) Resampling in Minuten-Bars ----------
+        bar = chunk.resample(f"{bar_min}min").agg(
+            price=("price", "last"),
+            open=("price", "first"),
+            high=("price", "max"),
+            low=("price", "min"),
+            close=("price", "last"),
+            volume=("volume", "sum"),
+            # price_bid/ask optional:
+            price_bid=("price_bid", "last") if "price_bid" in chunk else np.nan,
+            price_ask=("price_ask", "last") if "price_ask" in chunk else np.nan,
+        )
+
+        # Nur vollständige Bars behalten
+        bar = bar.dropna(subset=["price", "open", "high", "low", "close"])
+        if not bar.empty:
+            yield bar
+
+
+
+# -----------  Trend-Labeling (Directional-Change + Trend-Scan)  ------------
+
+def _directional_change(price: pd.Series, dc_thres: float) -> pd.Series:
+    """
+    Primitive DC-Phase-Erkennung: +1 = Up, -1 = Down, 0 = Idle
+    """
+    price = pd.to_numeric(price, errors="coerce").astype(np.float64)
+    ref = price.iloc[0]
+    phase = np.zeros(len(price), dtype=int)
+    dc = np.zeros(len(price), dtype=int)
+
+    last_ext = ref
+    direction = 0  # 1 := up, -1 := down, 0 := neutral
+    for i, p in enumerate(price):
+        move = (p / last_ext - 1) * 100  # Prozent
+        if direction >= 0 and move <= -dc_thres:
+            direction = -1
+            last_ext = p
+            dc[i] = direction
+        elif direction <= 0 and move >= dc_thres:
+            direction = 1
+            last_ext = p
+            dc[i] = direction
+        phase[i] = direction
+    return pd.Series(phase, index=price.index, name="dc_phase")
+
+
+def make_trend_labels(
+    df: pd.DataFrame,
+    dc_thres: float = 0.5,
+    w_list: List[int] = (5, 15, 30),
+    tau: int = 1
+) -> pd.DataFrame:
+    """
+    1. Directional-Change-Phase bestimmen
+    2. Trend-Scan = Mehrheit der DC-Phasen in gleitenden Fenstern w_list
+    """
+    if "price" not in df.columns:
+        raise KeyError("'price' Spalte fehlt für Trend-Labeling")
+    trend = pd.DataFrame(index=df.index)
+    trend["dc_phase"] = _directional_change(df["price"], dc_thres)
+    # Trend-Scan: Mehrheit >= tau Fenster müssen up ODER down sein
+    for w in w_list:
+        trend[f"scan{w}"] = trend["dc_phase"].rolling(w, min_periods=w) \
+            .apply(lambda arr: math.copysign(1, arr.sum())
+                   if abs(arr.sum()) >= tau else 0, raw=True)
+    # Endgültiger Trend = Durchschnitt der Fenster
+    scans = trend[[f"scan{w}" for w in w_list]]
+    trend["trend_side"] = scans.mean(axis=1).apply(
+        lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+    return trend
+
+
+# ---------------  Feature-Engineering Wrapper (example)  -------------------
+
+def enrich_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ruft utils.features.enrich auf.
+    Fügt vorab eine 'timestamp'-Spalte hinzu, wenn der Zeitstempel nur im Index steckt,
+    denn enrich() erwartet diese Spalte.
+    """
+    # timestamp-Spalte sicherstellen
+    if "timestamp" not in df.columns:
+        # Timestamp als Spalte *hinzufügen*, aber Index unverändert lassen
+        df = df.copy()
+        df["timestamp"] = df.index
+
+    from utils.features import enrich  # Projektfunktion
+    feat = enrich(df.copy())
+
+    # Basis-OHLCV ggf. nachziehen
+    for col in ["open", "high", "low", "close", "volume"]:
+        if col in df.columns and col not in feat.columns:
+            feat[col] = df[col]
+    return feat
+
+
+
+# ---------------------------------------------------------------------------
+# ------------------------------  Haupt-Routine  ----------------------------
+# ---------------------------------------------------------------------------
+def evaluate_one_model(
+    model_dir: Path,
+    test_file: Path,
+    seq_len: int,
+    bar_min: int,
+    plots: bool = False,
+) -> Dict[str, Any]:
+    """
+    Führt Evaluation für ein Modellverzeichnis durch
+    und gibt ein Dict mit allen Metriken + Plot-Pfaden zurück.
+    """
+
+    # ---------------- Konfiguration ----------------
+    cfg_yaml = yaml.safe_load(open(model_dir / "config.yaml", encoding="utf-8"))
+
+    def J(json_name: str, yaml_path: List[str], default={}):
+        return json_or_yaml(model_dir / json_name, yaml_path, cfg_yaml) or default
+
+    # ------------- Modell-Komponenten laden ----------
+    from trainers.hybrid_longtrend_trainer import (
+        FTWrapped, SimpleCNN, MetaTransformer
+    )
+
+    # FT-Transformer
+    ft_cfg = adapt_ft_cfg(J("ft_cfg.json", ["model", "ft_params"]), FTWrapped)
+    ft_wrap = None
+    if ft_cfg:
+        ft_backbone = FTWrapped(**ft_cfg)
+        ft_backbone.load_state_dict(torch.load(model_dir / "ft.pt", map_location="cpu"))
+        ft_backbone.eval()
+        ft_wrap = FTWrapped(ft_backbone)
+        ft_wrap.load_state_dict(torch.load(model_dir / "ft_wrap.pt", map_location="cpu"))
+        ft_wrap.eval()
+
+    # CNN
+    cnn_cfg = filter_cfg(J("cnn_cfg.json", ["cnn"]), SimpleCNN)
+    cnn, n_cnn_feat = None, None
+    if cnn_cfg:
+        n_cnn_feat = cnn_cfg["n_feat"]
+        cnn = SimpleCNN(**cnn_cfg)
+        cnn.load_state_dict(torch.load(model_dir / "cnn.pt", map_location="cpu"))
+        cnn.eval()
+    elif (model_dir / "cnn.pt").exists():
+        state = torch.load(model_dir / "cnn.pt", map_location="cpu")
+        n_cnn_feat = state["net.0.weight"].shape[1]
+        cnn = SimpleCNN(n_feat=n_cnn_feat)
+        cnn.load_state_dict(state)
         cnn.eval()
 
+    # Klassische Modelle
+    rf_list = load_pickle(model_dir / "rf.pkl") or []
+    lgb_list = load_pickle(model_dir / "lgb.pkl") or []
+    xgb_list = load_pickle(model_dir / "xgb.pkl") or []
 
-    for col in ["open","high","low","close","volume"]:
-        match = next((c for c in df_raw if c.lower()==col), None)
-        if match and col not in df_feat:
-            df_feat[col] = df_raw[match].values[-len(df_feat):]
+    # Meta-Transformer
+    meta_cfg = filter_cfg(J("meta_cfg.json", ["meta"]), MetaTransformer)
+    meta_model = None
+    if meta_cfg:
+        meta_model = MetaTransformer(**meta_cfg)
+        meta_model.load_state_dict(torch.load(model_dir / "meta.pt", map_location="cpu"))
+        meta_model.eval()
 
-    vals = df_feat.to_numpy(dtype=np.float32)
-    labels_arr = df_raw["label"].loc[df_feat.index].to_numpy(dtype=np.float32)
+    # ---------------- Daten-Iterator vorbereiten ----------------
+    data_iter = (
+        iter_ticks_as_bars(test_file, bar_min)
+        if "tick" in test_file.name.lower()
+        else [pd.read_csv(test_file, parse_dates=["timestamp"]).set_index("timestamp")]
+    )
 
-    # 4) Sequenzen
-    seq_len = args.seq_len
-    X, y = [], []
-    for i in range(seq_len, len(vals)):
-        X.append(vals[i-seq_len:i])
-        y.append(labels_arr[i])
-    if not X:           # Chunk zu kurz
-        continue
-    X = np.stack(X); y = np.array(y)
+    # ---------------- Evaluation ----------------
+    seq_scaler = StandardScaler()
+    y_true_all, y_prob_all = [], []
+    comp_probs = {"ft": [], "cnn": [], "rf": [], "lgb": [], "xgb": []}
 
-    dl = DataLoader(TensorDataset(torch.tensor(X), torch.tensor(y)),
-                    batch_size=256, shuffle=False)
+    for df_raw in data_iter:
+        # ------- Spalten harmonisieren + Preis-NaNs füllen -------
+        df_raw.rename(columns={c: "Close" for c in df_raw.columns if c.lower() == "close"}, inplace=True)
+        if "price" not in df_raw.columns:
+            df_raw["price"] = df_raw["Close"]
+        df_raw["price"].replace(0, np.nan, inplace=True)
+        df_raw["price"].ffill(inplace=True)
 
-    # 5) Ensemble-Forward
-    probs, labels_out = [], []
-    with torch.no_grad():
+        # ---------------- Trend-Label ----------------
+        trend = make_trend_labels(
+            df_raw,
+            cfg_yaml.get("dc_thres", 0.5),
+            cfg_yaml.get("w_list", [5, 15, 30]),
+            cfg_yaml.get("tau", 1),
+        )
+        df_raw["label"] = (trend["trend_side"] == 1).astype(int)
+
+        # ---------------- Features -------------------
+        df_feat = enrich_features(df_raw).dropna()
+
+        # ---- exakte Trainings-Spalten laden ----
+        feat_cols_file = model_dir / "feature_cols.json"
+        if feat_cols_file.exists():
+            feat_cols = json.load(open(feat_cols_file))
+            for col in feat_cols:
+                if col not in df_feat.columns:
+                    df_feat[col] = 0.0
+            df_feat = df_feat[feat_cols]
+
+        # ---------------- Sequenzen ------------------
+        feat_arr = df_feat.to_numpy(dtype=np.float32)
+        lab_arr  = df_raw.loc[df_feat.index, "label"].to_numpy(np.float32)
+        if len(feat_arr) <= seq_len:
+            continue
+        feat_flat = feat_arr.reshape(len(feat_arr), -1)
+        seq_scaler.partial_fit(feat_flat)
+
+        seqs, labels = [], []
+        for i in range(seq_len, len(feat_arr)):
+            seqs.append(feat_arr[i - seq_len : i])
+            labels.append(lab_arr[i])
+        X_seq = torch.from_numpy(np.stack(seqs))
+        y_np  = np.array(labels)
+
+        dl = DataLoader(
+            TensorDataset(X_seq, torch.from_numpy(y_np)),
+            batch_size=512,
+            shuffle=False,
+        )
+
+        # ---------------- Inferenz-Loop ---------------
         for xb, yb in dl:
-            xb_np = xb.numpy().reshape(len(xb), -1)
-            p_rf  = mean_preds(rf_list,  xb_np, "rf")
-            p_lgb = mean_preds(lgb_list, xb_np, "lgb")
-            p_xgb = mean_preds(xgb_list, xb_np, "xgb")
-            p_ft  = torch.sigmoid(ft_wrap(xb)).numpy().ravel()
-            p_cnn = torch.sigmoid(cnn(xb.permute(0,2,1))).numpy().ravel()
-            stacked = np.vstack([p_rf,p_lgb,p_xgb,p_ft,p_cnn]).T.astype(np.float32)
-            p_meta  = torch.sigmoid(meta(torch.tensor(stacked))).numpy().ravel()
-            probs.append(p_meta); labels_out.append(yb.numpy())
-    all_probs.append(np.concatenate(probs))
-    all_labels.append(np.concatenate(labels_out))
+            preds_components = []
 
-# ─────────────────────── Gesamt-Metriken ──────────────────────────────
-probs       = np.concatenate(all_probs)
-labels_out  = np.concatenate(all_labels)
+            # Klassische Modelle
+            xb_flat = seq_scaler.transform(xb.numpy().reshape(len(xb), -1))
+            if rf_list:
+                p_rf = mean_preds([m.predict_proba(xb_flat)[:, 1] for m in rf_list])
+                comp_probs["rf"].append(p_rf); preds_components.append(p_rf)
+            if lgb_list:
+                p_lgb = mean_preds([m.predict(xb_flat) for m in lgb_list])
+                comp_probs["lgb"].append(p_lgb); preds_components.append(p_lgb)
+            if xgb_list:
+                p_xgb = mean_preds([m.predict_proba(xb_flat)[:, 1] for m in xgb_list])
+                comp_probs["xgb"].append(p_xgb); preds_components.append(p_xgb)
 
-acc  = accuracy_score(labels_out,(probs>=0.5).astype(int))
-auc  = roc_auc_score(labels_out, probs)
-cm   = confusion_matrix(labels_out,(probs>=0.5).astype(int))
+            # FT-Transformer
+            if ft_wrap:
+                p_ft = torch.sigmoid(ft_wrap(xb)).detach().numpy().ravel()
+                comp_probs["ft"].append(p_ft); preds_components.append(p_ft)
 
-print("\n────────  Evaluation  ────────")
-print(f"Accuracy : {acc:.4f}")
-print(f"ROC-AUC  : {auc:.4f}")
-print("Confusion matrix [TN FP; FN TP]:")
-print(cm)
-print("\nDetailed report:")
-print(classification_report(labels_out,(probs>=0.5).astype(int),
-                            target_names=["neg","pos"]))
+            # CNN  (nur erste n_cnn_feat Features)
+            if cnn:
+                p_cnn = torch.sigmoid(
+                    cnn(xb[:, :, :n_cnn_feat].permute(0, 2, 1))
+                ).detach().numpy().ravel()
+                comp_probs["cnn"].append(p_cnn); preds_components.append(p_cnn)
+
+            # Meta-Ensemble oder Durchschnitt
+            if meta_model:
+                stacked = np.vstack(preds_components).T.astype(np.float32)
+                p_meta = torch.sigmoid(
+                    meta_model(torch.from_numpy(stacked))
+                ).detach().numpy().ravel()
+            else:
+                p_meta = mean_preds(preds_components)
+
+            y_true_all.append(yb.numpy())
+            y_prob_all.append(p_meta)
+
+    # ---------------- Kennzahlen ----------------
+    y_true = np.concatenate(y_true_all)
+    y_prob = np.concatenate(y_prob_all)
+    y_pred = (y_prob >= 0.5).astype(int)
+
+    metrics = {
+        "accuracy": float(accuracy_score(y_true, y_pred)),
+        "roc_auc": float(roc_auc_score(y_true, y_prob)),
+    }
+    cm = confusion_matrix(y_true, y_pred)
+    cls = classification_report(y_true, y_pred, target_names=["no-trend", "up-trend"], output_dict=True)
+    metrics.update({
+        "precision": cls["up-trend"]["precision"],
+        "recall":    cls["up-trend"]["recall"],
+        "f1":        cls["up-trend"]["f1-score"],
+        "confusion_matrix": cm.tolist(),
+    })
+
+    # -------------- Plots (optional) --------------
+    fig_paths = {}
+    if plots:
+        import matplotlib.pyplot as plt, seaborn as sns, os
+        out_dir = model_dir / "eval_figs"; out_dir.mkdir(exist_ok=True)
+
+        plt.figure(figsize=(4, 3))
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                    xticklabels=["no", "up"], yticklabels=["no", "up"])
+        plt.title("Confusion Matrix"); plt.ylabel("True"); plt.xlabel("Pred")
+        cm_path = out_dir / "confusion_matrix.png"
+        plt.tight_layout(); plt.savefig(cm_path); plt.close()
+        fig_paths["confusion_matrix"] = str(cm_path)
+
+        from sklearn.metrics import RocCurveDisplay, precision_recall_curve, auc
+        RocCurveDisplay.from_predictions(y_true, y_prob)
+        plt.title(f"ROC (AUC={metrics['roc_auc']:.3f})")
+        roc_path = out_dir / "roc_curve.png"
+        plt.tight_layout(); plt.savefig(roc_path); plt.close()
+        fig_paths["roc_curve"] = str(roc_path)
+
+        prec, rec, _ = precision_recall_curve(y_true, y_prob)
+        pr_auc = auc(rec, prec)
+        plt.figure(); plt.plot(rec, prec); plt.xlabel("Recall"); plt.ylabel("Precision")
+        plt.title(f"PR-Curve (AUC={pr_auc:.3f})")
+        pr_path = out_dir / "pr_curve.png"
+        plt.tight_layout(); plt.savefig(pr_path); plt.close()
+        fig_paths["pr_curve"] = str(pr_path)
+
+        metrics["pr_auc"] = pr_auc
+        metrics["figures"] = fig_paths
+
+    return metrics
+
+# ---------------------------------------------------------------------------
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=textwrap.dedent(__doc__)
+    )
+    p.add_argument("--model-dir", required=True, nargs="+",
+                   help="Pfad(e) zu trainierten Modell­verzeichnissen")
+    p.add_argument("--test-file", required=True,
+                   help="Testdatei (Ticks oder Kerzen-CSV/TXT)")
+    p.add_argument("--seq-len", type=int, default=24,
+                   help="Sequenz­länge für Zeitreihen­modelle")
+    p.add_argument("--bar-min", type=int, default=60,
+                   help="Resampling-Intervall in Minuten für Tick-Dateien")
+    p.add_argument("--plots", action="store_true",
+                   help="Speichert PNG-Plots in <model>/eval_figs")
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+    results = {}
+    for md in args.model_dir:
+        md_path = Path(md)
+        if not md_path.exists():
+            print(f"[WARN] Model-Dir {md} existiert nicht – übersprungen.")
+            continue
+        print(f"\n⏳  Evaluating {md_path} ...")
+        res = evaluate_one_model(
+            md_path, Path(args.test_file),
+            seq_len=args.seq_len, bar_min=args.bar_min,
+            plots=args.plots
+        )
+        results[md] = res
+        # Kurze Übersicht
+        print(f"✔  {md}: acc={res['accuracy']:.3f}, "
+              f"AUC={res['roc_auc']:.3f}, F1={res['f1']:.3f}")
+
+    # Vergleichstabelle
+    if len(results) > 1:
+        print("\n===== Modellvergleich =====")
+        header = f"{'Model':35s} |  Acc   |  AUC   |  F1"
+        print(header); print("-"*len(header))
+        for k, v in results.items():
+            print(f"{k:35s} | {v['accuracy']:.4f} | "
+                  f"{v['roc_auc']:.4f} | {v['f1']:.4f}")
+
+
+if __name__ == "__main__":
+    main()
