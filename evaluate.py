@@ -37,6 +37,9 @@ from sklearn.metrics import (
     accuracy_score, roc_auc_score, confusion_matrix,
     classification_report, precision_recall_curve, auc
 )
+# ------------- NEW IMPORTS --------------------
+from trainers.hybrid_longtrend_trainer import extract_regime_features
+import json
 from sklearn.preprocessing import StandardScaler
 import torch
 from torch.utils.data import DataLoader, TensorDataset
@@ -333,6 +336,13 @@ def evaluate_one_model(
     def J(json_name: str, yaml_path: List[str], default={}):
         return json_or_yaml(model_dir / json_name, yaml_path, cfg_yaml) or default
 
+    # ---------------- Temperature-Scaler laden ----------------
+    T = 1.0
+    temp_path = model_dir / "temp_scaler.pt"
+    if temp_path.exists():
+        T = torch.load(temp_path)["temperature"]
+        print(f"🔸 Temperature Scaling aktiv (T={T:.3f})")
+
     # ------------- Modell-Komponenten laden ----------
     from trainers.hybrid_longtrend_trainer import (
         FTWrapped, SimpleCNN, MetaTransformer
@@ -377,6 +387,10 @@ def evaluate_one_model(
         meta_model.load_state_dict(torch.load(model_dir / "meta.pt", map_location="cpu"))
         meta_model.eval()
 
+
+    # ---------------- Flag: Regime-Features? --------------------
+    use_regime = cfg_yaml.get("meta", {}).get("use_regime", False)
+
     # ---------------- Daten-Iterator vorbereiten ----------------
     data_iter = (
         iter_ticks_as_bars(test_file, bar_min)
@@ -406,6 +420,12 @@ def evaluate_one_model(
         )
         df_raw["label"] = (trend["trend_side"] == 1).astype(int)
 
+
+        # ------------- Regime-Features (ATR, %B) -------------
+        if use_regime:
+            regime_df = extract_regime_features(df_raw)
+            regime_df = regime_df.loc[df_raw.index]         # align index
+
         # ---------------- Features -------------------
         df_feat = enrich_features(df_raw).dropna()
 
@@ -419,29 +439,42 @@ def evaluate_one_model(
             df_feat = df_feat[feat_cols]
 
         # ---------------- Sequenzen ------------------
+        # ---------------- Sequenzen ------------------
         feat_arr = df_feat.to_numpy(dtype=np.float32)
         lab_arr  = df_raw.loc[df_feat.index, "label"].to_numpy(np.float32)
+
+        # Keine Sequenzen möglich? -> nächste Datei
         if len(feat_arr) <= seq_len:
             continue
-        feat_flat = feat_arr.reshape(len(feat_arr), -1)
-        seq_scaler.partial_fit(feat_flat)
 
-        seqs, labels = [], []
-        for i in range(seq_len, len(feat_arr)):
-            seqs.append(feat_arr[i - seq_len : i])
-            labels.append(lab_arr[i])
-        X_seq = torch.from_numpy(np.stack(seqs))
-        y_np  = np.array(labels)
+        seqs   = [feat_arr[i - seq_len : i] for i in range(seq_len, len(feat_arr))]
+        labels = lab_arr[seq_len:]
 
-        dl = DataLoader(
-            TensorDataset(X_seq, torch.from_numpy(y_np)),
-            batch_size=512,
-            shuffle=False,
-        )
+        if use_regime:
+            reg_arr = regime_df.to_numpy(dtype=np.float32)
+            reg_seqs = reg_arr[seq_len:]           # gleiche Länge wie labels
+
+        # Scaler auf exakt derselben Flatten-Form fitten, die wir später transformieren
+        seq_flat = np.reshape(seqs, (len(seqs), -1))
+        seq_scaler.partial_fit(seq_flat)
+
+        X_seq = torch.from_numpy(np.stack(seqs))                   # (N, seq_len, n_feat)
+        y_seq = torch.from_numpy(labels.astype(np.float32))
+
+        if use_regime:
+            loader = DataLoader(
+                TensorDataset(X_seq, y_seq,
+                              torch.from_numpy(reg_seqs)),
+                batch_size=512, shuffle=False)
+        else:
+            loader = DataLoader(TensorDataset(X_seq, y_seq),
+                                batch_size=512, shuffle=False)
 
         # ---------------- Inferenz-Loop ---------------
-        for xb, yb in dl:
+        for xb, yb in loader:
             preds_components = []
+    
+
 
             # Klassische Modelle
             xb_flat = seq_scaler.transform(xb.numpy().reshape(len(xb), -1))
@@ -455,21 +488,31 @@ def evaluate_one_model(
                 p_xgb = mean_preds([m.predict_proba(xb_flat)[:, 1] for m in xgb_list])
                 comp_probs["xgb"].append(p_xgb); preds_components.append(p_xgb)
 
-            # FT-Transformer
+            # FT-Transformer  (mit Temperature-Scaling)
             if ft_wrap:
-                p_ft = torch.sigmoid(ft_wrap(xb)).detach().numpy().ravel()
+                logits_ft = ft_wrap(xb)
+                if isinstance(logits_ft, dict):      # falls Wrapper Dict liefert
+                    logits_ft = logits_ft["logits"]
+                logits_ft = (logits_ft / T).detach().numpy().ravel()
+                p_ft = 1 / (1 + np.exp(-logits_ft))      # Sigmoid
                 comp_probs["ft"].append(p_ft); preds_components.append(p_ft)
 
             # CNN  (nur erste n_cnn_feat Features)
             if cnn:
-                p_cnn = torch.sigmoid(
-                    cnn(xb[:, :, :n_cnn_feat].permute(0, 2, 1))
-                ).detach().numpy().ravel()
+                cnn_logits = cnn(xb[:, :, :n_cnn_feat].permute(0, 2, 1))
+                cnn_logits = (cnn_logits / T).detach().numpy().ravel()
+                p_cnn = 1 / (1 + np.exp(-cnn_logits))
                 comp_probs["cnn"].append(p_cnn); preds_components.append(p_cnn)
 
             # Meta-Ensemble oder Durchschnitt
             if meta_model:
                 stacked = np.vstack(preds_components).T.astype(np.float32)
+                if use_regime:
+                    # Regime-Features für dieses Batch anhängen
+                    rb = loader.dataset.tensors[2]            # (N,2)
+                    rb_batch = rb[loader.dataset.tensors[1]   # Zugriff via idx
+                                          == yb].numpy()
+                    stacked = np.hstack([stacked, rb_batch])
                 p_meta = torch.sigmoid(
                     meta_model(torch.from_numpy(stacked))
                 ).detach().numpy().ravel()
