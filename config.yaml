@@ -1,73 +1,94 @@
+# ───────────────────────── Daten & Features ─────────────────────────
 data:
-  raw_dir: "./data"
-  longtrend_file: "longtrend.csv"
+  raw_dir: data/                 # Ordner mit den Rohdaten
+  longtrend_file: longtrend.csv  # Haupt-CSV/Parquet
+  numerical_cols:                # Spalten, die LongTrendDataset nutzt
+    - Open
+    - high
+    - low
+    - Close
+    - Volume
+    - sma_10
+    - ema_20
+    - rsi_14
+    - hour_sin
+    - hour_cos
 
+features:
+  window_sizes: [5, 10, 20]      # für SMA/EMA in utils.features.enrich
+  indicators:
+    - sma_20
+    - ema_20
+    - rsi_14
+    - macd
+    - bb_pct
+    - atr_14
+  time_features: true            # Tag/Std-Fourier-Features
+
+# ───────────────────────── Cross-Validation ────────────────────────
 cv:
   type: timeseries
   params:
-    n_splits: 5
+    n_splits: 8                  # wird nur von utils.dataset genutzt
 
-optuna:
-  n_trials: 1
-
-
-
-features:
-  window_sizes: [5, 10, 20]
-  indicators:   [sma_20, ema_20, rsi_14, macd, bb_pct, atr_14]
-  time_features: true
-  seq_len: 24
-
+# ───────────────────────── Modell-Blöcke ───────────────────────────
 model:
-  type: hybrid_longtrend          # oder ein passender Name
-  rf_params:                      # ← bleibt erhalten
+  type: hybrid_longtrend         # wird in train.py gewählt
+
+  rf_params:
     n_estimators: 250
-    max_depth:    8
+    max_depth: 8
     class_weight: balanced
 
-  ft_params:                      # hier alle FT‑Hyperparameter
-    d_token:            256
-    n_blocks:           6
-    numerical_bn:       layernorm
-    ffn_dropout:        0.10
-    attention_dropout:  0.10
+  ft_params:                     # FT-Backbone-Grundeinstellung
+    d_token: 348
+    n_blocks: 4
+    ffn_dropout: 0.20
+    attention_dropout: 0.20
 
+# ───────────────────────── Optionales SSL-Pretraining ──────────────
 pretraining:
-  enabled: true
-  weights_path: "ft_ssl.pt"
+  enabled: false                 # true → vorab Self-Supervised
+  weights_path: ft_ssl.pt
   epochs: 20
   batch_size: 256
 
-meta:
-  # Hyper­parameter für den Meta-Transformer
-  d_token: 64     # Breite der Token-Einbettung
-  n_blocks: 2     # Anzahl Transformer-Encoder-Blöcke
-  d_ff: 256       # Größe des Feed-Forward-Layers
-  dropout: 0.10   # Dropout-Rate innerhalb der Blöcke
-  num_train_epochs: 3
-
+# ───────────────────────── Training-Hyperparameter ─────────────────
 training:
   seq_len: 24
-  batch_size: 32
-  num_train_epochs: 1          # finales FT-Fine-Tuning
-  lr: 1e-3
+  batch_size: 128
+  num_train_epochs: 50
+  lr: 4e-3
   lr_scheduler: cosine
   warmup_epochs: 2
-  ft_optuna_epochs: 1          # Scout-Phase
+  ft_optuna_epochs: 4            # Scout-Phase für FT-Optuna
 
+# ───────────────────────── Verlustfunktion ─────────────────────────
+loss:
+  use_focal: true
+  focal_gamma: 2.0               # 0 ⇒ nur BCEWithLogits
 
-trend:
-  windows: [6, 12, 24, 48, 96]      # bars
-  t_stat_thresh: 2.2
-  dc_threshold_pct: 0.05
+# ───────────────────────── Optuna-Steuerung ────────────────────────
+optuna:
+  n_trials: 20
+  direction: minimize            # Log-Loss ↓
+  sampler: tpe
+  pruner: median                 # Median-Pruner
+  enable_rf:   true
+  enable_lgb:  true
+  enable_xgb:  true
+  enable_cnn:  true
+  enable_meta: true
 
-entry:
-  atr_window: 14
-  tp_mul: 2.0                # ×ATR
-  sl_mul: 1.2
-  horizon: 24                # bars
-  execute_p: 0.55            # meta‑label threshold
+# ───────────────────────── Meta-Transformer ────────────────────────
+meta:
+  use_regime: true               # ATR & Bollinger-%B anhängen
+  d_token: 92
+  n_blocks: 2
+  d_ff: 256
+  dropout: 0.10
+  num_train_epochs: 30
 
-exit:
-  max_horizon: 48            # bars
-  trail_atr_mul: 1.5
+# ───────────────────────── Ausgabe-Pfad / Tag ──────────────────────
+output_root: models/
+exp_name: hybrid_longtrend
