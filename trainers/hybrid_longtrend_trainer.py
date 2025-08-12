@@ -1,601 +1,908 @@
 # trainers/hybrid_longtrend_trainer.py
+# ============================================================================
+# HybridLongTrendTrainer  –  CPU-freundliches Ensemble (RF, LGB, XGB, FT, CNN)
+# mit Optuna-Tuning, Focal-Loss, Regime-Features & Temperature-Scaling
+# ============================================================================
+
+from __future__ import annotations
 from pathlib import Path
-import torch
+from datetime import datetime
+import os, gc, math, joblib, optuna, numpy as np, pandas as pd, torch
 import torch.nn as nn
 import torch.optim as optim
-
-import gc, optuna, psutil, math
-import numpy as np
-import pandas as pd
-from datetime import datetime
-
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, TensorDataset
+from sklearn.model_selection import TimeSeriesSplit, train_test_split
+from sklearn.metrics import log_loss
 from sklearn.ensemble import RandomForestClassifier
 import lightgbm as lgb
-import xgboost  as xgb
-from sklearn.metrics import log_loss
-from sklearn.model_selection import TimeSeriesSplit
-from transformers import Trainer, TrainingArguments
-from transformers import EarlyStoppingCallback
-# ganz oben in hybrid_longtrend_trainer.py ➜ Import‑Block ergänzen
-from transformers.trainer_utils import IntervalStrategy
-
-
+import xgboost as xgb
+from transformers import (Trainer, TrainingArguments, EarlyStoppingCallback,
+                          IntervalStrategy)
 from rtdl import FTTransformer
 from peft import LoraConfig, get_peft_model
 
+# ─── Projekt-Imports ────────────────────────────────────────────────────────
 from utils.dataset   import LongTrendDataset
 from utils.collate   import numeric_collate, meta_collate
 from utils.features  import enrich
 from .meta_transformer import MetaTransformer
-from .base import BaseTrainer
-# ganz oben einmalig ergänzen (falls noch nicht vorhanden):
-from transformers import EarlyStoppingCallback, IntervalStrategy
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from .base           import BaseTrainer
+from lightgbm import early_stopping as lgb_early_stopping, log_evaluation as lgb_log_evaluation
 
 
-# ───────────────────────── helper‑datasets ─────────────────────────
+# ========================================================================== #
+# Helper-Datasets
+# ========================================================================== #
 class NumpyDataset(Dataset):
-    def __init__(self, X, y):
-        self.X, self.y = X, y
-    def __len__(self):          return len(self.y)
-    def __getitem__(self, idx): return {"x_num": self.X[idx], "label": self.y[idx]}
-
-# utils/meta_dataset.py
-import numpy as np
-from torch.utils.data import Dataset
+    def __init__(self, X: np.ndarray, y: np.ndarray):
+        # konsistente Typen (HF-Trainer + Torch)
+        self.X = X.astype(np.float32)
+        self.y = y.astype(np.float32)
+    def __len__(self): return len(self.y)
+    def __getitem__(self, idx): return {"x_num": self.X[idx], "labels": self.y[idx]}
 
 class MetaDataset(Dataset):
     """
-    Dataset für das Stacking-Meta-Modell.
-
-    Jeder Eintrag liefert
-        • "preds"  – np.ndarray float32 [n_models]
-        • "labels" – float32            (0 / 1)
-
-    Beim Anlegen werden alle Samples verworfen, für die
-    kein Vorhersagevektor existiert (None oder Länge 0).
+    Liefert Stacking-Input
+      preds  : [n_models]
+      regime : [n_regime] (optional)
+      labels : Float 0/1
     """
+    def __init__(self, preds, labels, regime=None):
+        assert len(preds) == len(labels)
+        self.preds  = preds.astype(np.float32)
+        self.labels = labels.astype(np.float32)
+        self.regime = regime.astype(np.float32) if regime is not None else None
+    def __len__(self): return len(self.labels)
+    def __getitem__(self, idx):
+        item = {"preds": self.preds[idx], "labels": self.labels[idx]}
+        if self.regime is not None: item["regime"] = self.regime[idx]
+        return item
 
-    def __init__(self, preds: np.ndarray, labels: np.ndarray):
-        # Grund-Check: gleiche Sample-Anzahl
-        assert len(preds) == len(labels), (
-            f"preds len={len(preds)}  labels len={len(labels)} – mismatch!"
-        )
+# ========================================================================== #
+# Regime-Features
+# ========================================================================== #
+from ta.volatility import AverageTrueRange, BollingerBands
+def extract_regime_features(df: pd.DataFrame) -> pd.DataFrame:
+    atr = AverageTrueRange(df["high"], df["low"], df["close"], window=14)
+    bb  = BollingerBands(df["close"], window=20, window_dev=2)
+    feat = pd.DataFrame(index=df.index)
+    feat["atr"] = atr.average_true_range()
+    feat["bbp"] = bb.bollinger_pband()
+    return feat.ffill().fillna(0)
 
-        # --- Maskiere ungültige Samples ---------------------------------
-        mask = np.array([p is not None and len(p) > 0 for p in preds])
-        missing = (~mask).sum()
-        if missing:
-            print(f"⚠️  MetaDataset: {missing} Samples ohne Vorhersagevektor entfernt.")
-
-        # Nur gültige Datensätze behalten
-        self.preds  = preds [mask].astype(np.float32)
-        self.labels = labels[mask].astype(np.float32)
-
-    # -------------------------------------------------------------------
-    def __len__(self) -> int:
-        return len(self.labels)
-
-    def __getitem__(self, idx: int):
-        return {
-            "preds":  self.preds[idx],   # shape (n_models,)
-            "labels": self.labels[idx],  # Skalar
-        }
-
-
-# ───── Focal‑Loss (binary) ───────────────────────────────────────────
+# ========================================================================== #
+# Verluste & Kalibrierung
+# ========================================================================== #
 class FocalLoss(nn.Module):
-    def __init__(self, gamma: float = 2.0, pos_weight: torch.Tensor | None = None):
+    def __init__(self, gamma: float = 2.0,
+                 pos_weight: torch.Tensor | None = None):
         super().__init__()
-        self.gamma = gamma
-        self.bce   = nn.BCEWithLogitsLoss(reduction="none", pos_weight=pos_weight)
-
+        self.gamma, self.bce = gamma, nn.BCEWithLogitsLoss(
+            reduction="none", pos_weight=pos_weight)
     def forward(self, logits, targets):
         bce  = self.bce(logits, targets)
         prob = torch.sigmoid(logits)
-        pt   = torch.where(targets == 1, prob, 1 - prob)        # p_t
-        focal = (1 - pt) ** self.gamma * bce
-        return focal.mean()
+        pt   = torch.where(targets == 1, prob, 1 - prob)
+        return ((1 - pt) ** self.gamma * bce).mean()
+
+class TemperatureScaler(nn.Module):
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+        self.temperature = nn.Parameter(torch.ones(1))
+    def forward(self, x): return self.model(x) / self.temperature
+
+@torch.no_grad()
+def calibrate_temperature(model, val_loader):
+    device = next(model.parameters()).device
+    scaler = TemperatureScaler(model).to(device)
+    opt = torch.optim.LBFGS([scaler.temperature], lr=0.01, max_iter=50)
+    def _loss():
+        opt.zero_grad()
+        logits = torch.cat([scaler(x.to(device)) for x, _ in val_loader])
+        labels = torch.cat([y.to(device) for _, y in val_loader])
+        loss = nn.functional.binary_cross_entropy_with_logits(
+            logits.squeeze(), labels.float())
+        loss.backward(); return loss
+    opt.step(_loss)
+    return scaler.temperature.item()
+# ---- neu: kleiner Wrapper für FT-Logits (für Temperature-Scaling)
+class _FTLogits(nn.Module):
+    def __init__(self, ft_model: nn.Module):
+        super().__init__()
+        self.ft_model = ft_model
+    def forward(self, x):
+        out = self.ft_model(x)
+        return out["logits"] if isinstance(out, dict) else out
+# ========================================================================== #
+# Einfache 1-D-CNN - konfigurierbar
+# ========================================================================== #
+class SimpleCNN(nn.Module):
+    def __init__(self, n_feat: int, n_filters: int = 32):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv1d(n_feat, n_filters, 3, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool1d(1),
+            nn.Flatten(),
+            nn.Linear(n_filters, 1)
+        )
+    def forward(self, x): return self.net(x).squeeze(-1)
+
+# ========================================================================== #
+# Optuna-Utility
+# ========================================================================== #
+def run_optuna_and_save(objective_fn, n_trials: int, study_name: str, save_dir: Path):
+    import optuna, joblib, time
+    optuna.logging.set_verbosity(optuna.logging.INFO)
+
+    def cb(study: optuna.Study, trial: optuna.trial.FrozenTrial):
+        print(f"[{time.strftime('%H:%M:%S')}] {study.study_name} "
+              f"trial#{trial.number} value={trial.value} params={trial.params}", flush=True)
+
+    study = optuna.create_study(direction="minimize", study_name=study_name)
+    # Robust gegen pathologische Objectives: 0.0/NaN/Inf dürfen nie "best" werden
+    def _safe_objective(trial):
+        val = objective_fn(trial)
+        if val is None or not np.isfinite(val) or float(val) <= 0.0:
+            return float("inf")
+        return float(val)
+    study.optimize(_safe_objective, n_trials=n_trials, show_progress_bar=True, callbacks=[cb])
+
+    pkl = save_dir / f"{study_name}.pkl"
+    joblib.dump(study, pkl)
+    study.trials_dataframe().to_csv(save_dir / f"{study_name}_trials.csv", index=False)
+    return study
 
 class FTWrapped(nn.Module):
     """
-    Binary‑Wrapper
-      • BCEWithLogits + optionale Class‑Imbalance‑Gewichte
-      • Label‑Smoothing  (eps)
-      • Focal‑Loss‑Faktor (gamma)  – wenn gamma > 0
+    Wrapper für rtdl.FTTransformer:
+      - gibt {"logits": logits, "loss": loss} zurück
+      - unterstützt optional Focal-Loss und Label-Smoothing
     """
-    def __init__(
-        self,
-        ft_base: nn.Module,
-        pos_weight: torch.Tensor | None = None,
-        label_smooth_eps: float = 0.0,
-        focal_gamma: float | None = None,          # ← NEU
-    ):
+    def __init__(self, ft_base: nn.Module,
+                 pos_weight: torch.Tensor | None = None,
+                 label_smooth_eps: float = 0.0,
+                 focal_gamma: float | None = None):
         super().__init__()
-        self.ft   = ft_base
-        self.eps  = label_smooth_eps
-        self.gamma= focal_gamma
-        self.bce  = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
+        self.ft = ft_base
+        self.eps = label_smooth_eps
+        self.gamma = focal_gamma
+        self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
 
     def forward(self, x_num, labels: torch.Tensor | None = None):
-        logits = self.ft(x_num, None).squeeze(-1)        # [B]
-        loss   = None
-
+        # rtdl.FTTransformer erwartet (x_num, x_cat=None)
+        logits = self.ft(x_num, None).squeeze(-1)
+        loss = None
         if labels is not None:
-            # ── Label‑Smoothing ───────────────────────────────────────────
             if self.eps > 0.0:
                 labels = labels * (1.0 - self.eps) + 0.5 * self.eps
-
-            bce_loss = self.bce(logits, labels)
-
-            # ── Focal‑Modulation (optional) ───────────────────────────────
+            bce = self.bce(logits, labels)
             if self.gamma and self.gamma > 0:
-                p_t = torch.sigmoid(logits).detach()
-                focal_factor = (1.0 - p_t).pow(self.gamma)
-                bce_loss = focal_factor * bce_loss
-
-            loss = bce_loss.mean()
-
+                with torch.no_grad():
+                    p = torch.sigmoid(logits)
+                    pt = torch.where(labels == 1, p, 1 - p)
+                bce = (1 - pt).pow(self.gamma) * bce
+            loss = bce.mean()
         return {"logits": logits, "loss": loss}
 
 
-class SimpleCNN(nn.Module):
-    def __init__(self, n_feat: int):
-        super().__init__()
-        # Eingabe­form:  x  = [B, n_feat, seq_len]
-        self.net = nn.Sequential(
-            nn.Conv1d(n_feat, 32, kernel_size=3, padding=1),  # 32 Filter
-            nn.ReLU(),
-            nn.AdaptiveAvgPool1d(1),                          # -> [B,32,1]
-            nn.Flatten(),                                     # -> [B,32]
-            nn.Linear(32, 1)                                  # -> [B,1]
-        )
-
-    def forward(self, x):                                     # x: [B, n_feat, L]
-        return self.net(x).squeeze(-1)                        # -> [B]
-
-
-# ──────────────────────── Trainer‑Klasse ───────────────────────────
-# ───────────────────────── HybridLongTrendTrainer ──────────────────────────
+# ========================================================================== #
+# HybridLongTrendTrainer
+# ========================================================================== #
 class HybridLongTrendTrainer(BaseTrainer):
+
+    # ------------------------------------------------------------------ init
     def __init__(self, cfg_path: str):
         super().__init__(cfg_path)
-        # Alle Operationen auf CPU erzwingen (GPU vollständig deaktivieren)
-        self.device = device            # GPU, falls vorhanden
-        # ── 2) Verzeichnis & Tag für gespeicherte Modelle ─────────────
-        exp_name           = self.cfg.get("exp_name", "hybrid_longtrend")
-        timestamp          = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.model_tag     = f"{exp_name}_{timestamp}"
-
-        out_root           = Path(self.cfg.get("output_root", "models"))
-        self.model_dir     = out_root / self.model_tag
+        self.device   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        stamp         = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.model_dir= Path(self.cfg.get("output_root", "models")) \
+                        / f"{self.cfg.get('exp_name','hybrid')}_{stamp}"
         self.model_dir.mkdir(parents=True, exist_ok=True)
-# ───────────────────────────── Daten laden ──────────────────────────────
-    def load_data(self):
-        num_cols = [
-            "Open", "high", "low", "Close", "Volume",
-            "sma_10", "ema_20", "rsi_14", "hour_sin", "hour_cos"
-        ]
-        import json
-        feat_path = self.model_dir / "feature_cols.json"
-        json.dump(num_cols, open(feat_path, "w"))
-        # feste Länge aus der YAML
-        seq_len = self.cfg["training"].get("seq_len", 24)
+        # CPU-Threads für RF/LGB/XGB (konfigurierbar: hardware.cpu_threads)
+        self.cpu_threads = int(self.cfg.get("hardware", {}).get(
+            "cpu_threads",
+            max(1, (os.cpu_count() or 4)//2)
+        ))
+        # Auf der GPU etwas Headroom lassen (reduziert Freezes)
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.set_per_process_memory_fraction(0.9)
+            except Exception:
+                pass
 
+    # -------------------------------------------------------------- load_data
+    def load_data(self):
+        seq_len  = self.cfg["training"].get("seq_len", 24)
+        num_cols = self.cfg["data"]["numerical_cols"]
         ds = LongTrendDataset(
-            csv_path       = f"{self.cfg['data']['raw_dir']}/{self.cfg['data']['longtrend_file']}",
+            csv_path       = f"{self.cfg['data']['raw_dir']}/"
+                             f"{self.cfg['data']['longtrend_file']}",
             numerical_cols = num_cols,
             seq_len        = seq_len
         )
-
-        # ── TimeSeriesSplit mit größerem Gap + 5 % Positives ────────────────
-        def last_fold_with_enough_pos(X, y, n_splits=5, min_frac=0.05):
-            tss   = TimeSeriesSplit(n_splits=n_splits, gap=2*seq_len)
-            folds = list(tss.split(X))
-            for tr, va in reversed(folds):
-                if y[va].mean() >= min_frac:
-                    return tr, va
-            return folds[-1]
-
-        tr_idx, va_idx = last_fold_with_enough_pos(
-            ds.X_seq, ds.y_seq, n_splits=5, min_frac=0.05
-        )
-        self.X_train, self.y_train = ds.X_seq[tr_idx], ds.y_seq[tr_idx]
-        self.X_val,   self.y_val   = ds.X_seq[va_idx], ds.y_seq[va_idx]
-
+        # TimeSeriesSplit – letzter Fold mit ≥ 5 % Positiv
+        def pick_fold(X, y, splits=5, min_frac=0.05):
+            tss = TimeSeriesSplit(splits, gap=2*seq_len)
+            for tr, va in reversed(list(tss.split(X))):
+                if y[va].mean() >= min_frac: return tr, va
+            return list(tss.split(X))[-1]
+        tr, va = pick_fold(ds.X_seq, ds.y_seq)
+        self.X_train, self.y_train = ds.X_seq[tr], ds.y_seq[tr]
+        self.X_val,   self.y_val   = ds.X_seq[va], ds.y_seq[va]
         return self.X_train, self.y_train
 
-# ═══════════════════════════ Utility 3‑D → 2‑D ════════════════════════════
-    @staticmethod
-    def _flat(X3d: np.ndarray) -> np.ndarray:
-        return X3d.reshape(len(X3d), -1)
+    def _predict_ft_batched(self, model, X, batch_size=64):
+        dev = next(model.parameters()).device
+        outs = []
+        model.eval()
+        with torch.no_grad():
+            for i in range(0, len(X), batch_size):
+                xb = torch.tensor(X[i:i+batch_size], dtype=torch.float32, device=dev)
+                with torch.cuda.amp.autocast(enabled=(dev.type == "cuda")):
+                    logits = model(xb)["logits"]
+                outs.append(torch.sigmoid(logits).float().cpu().numpy())
+        return np.concatenate(outs).astype(np.float32)
 
-    def build_features(self, X):  return X               # Identity‑Hook
-    def train_final(self,*_,**__): return self.meta      # liefert Meta‑Modell
 
-    # ───────────────────── Mini‑Batch‑LogLoss (smoothing aware) ─────────────────────
-   
-
-        # ──────────────────────── Mini-Batch-LogLoss ────────────────────────
-        # ──────────────────────── Mini-Batch-LogLoss ────────────────────────
-    def _batch_log_loss(self, model, X, y, batch_size: int = 1024) -> float:
-
-            model.eval()
-            loss_list = []
-            # Pos-Weight auf dem richtigen Device berechnen
-            pos_weight = torch.tensor(
-                [(len(y) - y.sum()) / (y.sum() + 1e-6)],
-                device=self.device
-            )
-            loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-
-            with torch.no_grad():
-                for i in range(0, len(y), batch_size):
-                    xb = torch.as_tensor(
-                        X[i : i + batch_size],
-                        dtype=torch.float32,
-                        device=self.device
-                    )
-                    lb = torch.as_tensor(
-                        y[i : i + batch_size],
-                        dtype=torch.float32,
-                        device=self.device
-                    )
-                    out = model(xb)
-                    logits = out["logits"] if isinstance(out, dict) else out
-                    loss = loss_fn(logits.squeeze(-1), lb)
-                    loss_list.append(loss.cpu())
-
-            return torch.stack(loss_list).mean().item()
-
-# ════════════════════════ Basis‑Modelle ═══════════════════════════════════
+    # -------------------------------------------------- Basis-Model-Trainer
     def _train_rf(self, X, y):
-        Xf, rng, models = self._flat(X), np.random.default_rng(42), []
+        Xf = self._flat(X)
+        def obj(t): return self._rf_objective(t, Xf, y)
+        best = run_optuna_and_save(obj, self.cfg["optuna"]["n_trials"],
+                                   "rf_study", self.model_dir).best_params
+        # Full-fit Ensemble (wie gehabt)
+        models, rng = [], np.random.default_rng(42)
         for _ in range(3):
             idx = rng.choice(len(Xf), len(Xf), replace=True)
-            m   = RandomForestClassifier(**self.cfg["model"]["rf_params"])
-            m.fit(Xf[idx], y[idx]); models.append(m)
-        return models
+            m   = RandomForestClassifier(**best, n_jobs=self.cpu_threads)
+            m.fit(Xf[idx], y[idx])
+            models.append(m)
+        # OOF (K=5)
+        tss = TimeSeriesSplit(n_splits=5)
+        oof = np.zeros(len(Xf), dtype=np.float32)
+        for tr, va in tss.split(Xf):
+            m = RandomForestClassifier(**best)
+            m.fit(Xf[tr], y[tr])
+            oof[va] = m.predict_proba(Xf[va])[:,1]
+        # Val-Preds
+        Xv = self._flat(self.X_val)
+        val_preds = np.mean([m.predict_proba(Xv)[:,1] for m in models], axis=0).astype(np.float32)
+        return models, oof, val_preds
 
     def _train_lgb(self, X, y):
-        Xf, rng, models = self._flat(X), np.random.default_rng(0), []
-        for _ in range(3):
-            idx = rng.choice(len(Xf), len(Xf), replace=True)
-            d   = lgb.Dataset(Xf[idx], label=y[idx])
-            m   = lgb.train(dict(objective="binary", learning_rate=0.05,
-                                 num_leaves=64, metric="binary_logloss"),
-                            d, 300)
-            models.append(m)
-        return models
+        Xf = self._flat(X)
+        best = run_optuna_and_save(
+            lambda t: self._lgb_objective(t, Xf, y),
+            self.cfg["optuna"]["n_trials"], "lgb_study", self.model_dir
+        ).best_params
+        # Full-fit
+        d   = lgb.Dataset(Xf, label=y)
+        models = [lgb.train({**best,"objective":"binary","metric":"binary_logloss"}, d, 500)]
+        # OOF
+        tss = TimeSeriesSplit(n_splits=5)
+        oof = np.zeros(len(Xf), dtype=np.float32)
+        for tr, va in tss.split(Xf):
+            dt = lgb.Dataset(Xf[tr], label=y[tr])
+            mv = lgb.train({**best,"objective":"binary","metric":"binary_logloss"}, dt, 500)
+            oof[va] = mv.predict(Xf[va]).astype(np.float32)
+        # Val
+        Xv = self._flat(self.X_val)
+        val_preds = np.mean([m.predict(Xv) for m in models], axis=0).astype(np.float32)
+        return models, oof, val_preds
+
 
     def _train_xgb(self, X, y):
-        Xf, rng, models = self._flat(X), np.random.default_rng(1), []
-        for _ in range(3):
-            idx = rng.choice(len(Xf), len(Xf), replace=True)
-            d   = xgb.DMatrix(Xf[idx], label=y[idx])
-            m   = xgb.train(dict(objective="binary:logistic", eta=0.05,
-                                 max_depth=6, eval_metric="logloss"),
-                            d, 300)
-            models.append(m)
-        return models
+        Xf = self._flat(X)
+        best = run_optuna_and_save(
+            lambda t: self._xgb_objective(t, Xf, y),
+            self.cfg["optuna"]["n_trials"], "xgb_study", self.model_dir
+        ).best_params
+        params = {**best, "objective":"binary:logistic", "eval_metric":"logloss"}
+        if "lambda_l2" in params:  # Optuna-Name → XGB-Param
+            params["lambda"] = params.pop("lambda_l2")
+        # Full-fit
+        d = xgb.DMatrix(Xf, label=y)
+        model = xgb.train(params, d, 500)
+        models = [model]
+        # OOF
+        tss = TimeSeriesSplit(n_splits=5)
+        oof = np.zeros(len(Xf), dtype=np.float32)
+        for tr, va in tss.split(Xf):
+            mt = xgb.train(params, xgb.DMatrix(Xf[tr], label=y[tr]), 500)
+            oof[va] = mt.predict(xgb.DMatrix(Xf[va])).astype(np.float32)
+        # Val
+        Xv = self._flat(self.X_val)
+        val_preds = np.mean([m.predict(xgb.DMatrix(Xv)) for m in models], axis=0).astype(np.float32)
+        return models, oof, val_preds
 
-    # -------- 1‑D‑CNN Basismodell --------
-    def _train_cnn(self, X: np.ndarray, y: np.ndarray):
-        """
-        X: ndarray  [N, seq_len, n_feat]
-        y: ndarray  [N]
-        """
-        mdl = SimpleCNN(n_feat=X.shape[2]).to(self.device)
-        # Torch-Tensoren auf das festgelegte Device (CPU) übertragen
-        X_t = torch.tensor(X, dtype=torch.float32, device=self.device).permute(0, 2, 1)  # [N, n_feat, L]
-        y_t = torch.tensor(y, dtype=torch.float32, device=self.device).view(-1)          # [N]
-        crit = nn.BCEWithLogitsLoss()
-        opt  = optim.Adam(mdl.parameters(), lr=1e-3)
+    def _train_cnn(self, X, y):
+        best = run_optuna_and_save(
+            lambda t: self._cnn_objective(t),  # nutzt self.X_train intern
+            self.cfg["optuna"]["n_trials"], "cnn_study", self.model_dir
+        ).best_params
+        mdl = SimpleCNN(X.shape[2], best["n_filters"]).to(self.device)
+        opt = optim.Adam(mdl.parameters(), lr=best["lr"])
+        crit= nn.BCEWithLogitsLoss()
+        Xt  = torch.tensor(X, dtype=torch.float32,
+                           device=self.device).permute(0,2,1)
+        yt  = torch.tensor(y, dtype=torch.float32, device=self.device)
         mdl.train()
         for _ in range(10):
-            opt.zero_grad()
-            logits = mdl(X_t)                
-            loss   = crit(logits, y_t)
-            loss.backward()
-            opt.step()
-        # Für die spätere Inferenz auf CPU belassen (Modell ist bereits auf CPU)
-        return mdl.cpu()
+            opt.zero_grad(); loss = crit(mdl(Xt).squeeze(), yt)
+            loss.backward(); opt.step()
+        # OOF
+        tss = TimeSeriesSplit(n_splits=5)
+        oof = np.zeros(len(X), dtype=np.float32)
+        for tr, va in tss.split(X):
+            m = SimpleCNN(X.shape[2], best["n_filters"]).to(self.device)
+            o = optim.Adam(m.parameters(), lr=best["lr"])
+            m.train()
+            Xtr = torch.tensor(X[tr], dtype=torch.float32, device=self.device).permute(0,2,1)
+            ytr = torch.tensor(y[tr], dtype=torch.float32, device=self.device)
+            for _ in range(5):
+                o.zero_grad(); L = crit(m(Xtr).squeeze(), ytr); L.backward(); o.step()
+            m.eval()
+            Xva = torch.tensor(X[va], dtype=torch.float32, device=self.device).permute(0,2,1)
+            oof[va] = torch.sigmoid(m(Xva).squeeze()).detach().cpu().numpy().astype(np.float32)
+        # Val
+        self.cnn = mdl.cpu()
+        Xv = torch.tensor(self.X_val, dtype=torch.float32).permute(0,2,1)
+        val_preds = torch.sigmoid(self.cnn(Xv)).detach().cpu().numpy().astype(np.float32)
+        return self.cnn, oof, val_preds
 
-    # ───────────────────────────────
-    @torch.no_grad()
-    def _predict_ft_logits(self, Xf: np.ndarray, batch_size: int = 1024) -> np.ndarray:
-        """
-        Liefert rohe (vor Sigmoid) Logits des fein‑getunten FT‑Transformers zurück
-        – komplett auf der CPU, speicherschonend in Batches.
-
-        Parameters
-        ----------
-        Xf : np.ndarray  [N, d]
-            Geﬂattete Feature‑Matrix.
-        batch_size : int
-            Batchgröße für die Inferenz.
-
-        Returns
-        -------
-        np.ndarray  [N]
-            Logits als 1‑D‑Array auf der CPU.
-        """
-        self.ft.eval()
-        preds = []
-        for i in range(0, len(Xf), batch_size):
-            x_batch = torch.tensor(Xf[i : i + batch_size],
-                                   dtype=torch.float32,
-                                   device=self.device)
-
-            # PEFT/HF‑Modelle geben oft ein Output‑Dict oder Tuple zurück
-            try:
-                output = self.ft(x_batch)          # Standard‑Forward
-            except TypeError:
-                output = self.ft(x_batch, None)    # Fallback, falls zweites Argument erwartet wird
-
-            if isinstance(output, dict):
-                logits = output["logits"]
-            elif isinstance(output, (tuple, list)):
-                logits = output[0]
-            else:
-                logits = output
-
-            preds.append(logits.squeeze(-1).cpu())
-            del x_batch, output, logits            # RAM sofort freigeben
-
-        torch.cuda.empty_cache(); gc.collect()
-        return torch.cat(preds).numpy()
-
-# ═════════════════════ FT‑Transformer Helfer ══════════════════════════════
-        # ══════════════════  FT‑Transformer Fabrik  ════════════════════════
-    def _make_ft(self, n_features: int, n_blocks: int) -> FTTransformer:
-        """
-        Erstellt einen FT‑Transformer und setzt anschließend höhere Dropout‑
-        Raten auf Attention‑ sowie FFN‑Ebene (0.2).  Das geht, weil
-        rtdl.FTTransformer.make_default die Layer als Dict speichert.
-        """
-        ft = FTTransformer.make_default(       # ohne Dropout‑Args
-            n_num_features    = n_features,
-            cat_cardinalities = (),
-            d_out             = 1,
-            n_blocks          = n_blocks
-        )
-
-        # ──  Attention & FFN‑Dropout pro Block anpassen  ──────────────
-        for blk in ft.transformer.blocks:               # type: ignore[attr-defined]
-            blk['attention'].dropout.p = 0.2            # Attention‑Dropout
-            blk['ffn'].dropout.p       = 0.2            # FFN‑Dropout
-
-        return ft
-
-    def _add_lora(self, ft, n_blocks, rank=4):
-        last2 = range(n_blocks-2, n_blocks)
-        target = [f"blocks.{i}.{p}"
-                  for i in last2
-                  for p in ["attention.W_q","attention.W_k","attention.W_v",
-                            "attention.W_out","ffn.linear_first",
-                            "ffn.linear_second"]]
-        return get_peft_model(
-            ft,
-            LoraConfig(r=rank,
-                       lora_alpha=8*rank,
-                       lora_dropout=0.05,
-                       target_modules=target)
-        )
-
-        # ──────────────────────── FT-Optuna-Objective ────────────────────────
-        # ──────────────────────── FT-Optuna-Objective ────────────────────────
-    def _ft_objective(self, trial, Xf: np.ndarray, y: np.ndarray) -> float:
-
-            # 1) Hyperparameter-Vorschläge
-            hp = {
-                "lr":       trial.suggest_float("lr",      1e-6, 5e-4, log=True),
-                "n_blocks": trial.suggest_int(  "n_blocks", 2,    6),
-            }
-            optuna_epochs = self.cfg["training"].get("ft_optuna_epochs", 3)
-
-            # 2) Modell initialisieren und auf Device legen
-            base_ft = self._make_ft(Xf.shape[1], hp["n_blocks"])
-            peft_ft = get_peft_model(
-                base_ft,
-                LoraConfig(r=4, lora_alpha=16, lora_dropout=0.05,
-                        target_modules=["ffn.linear_first"])
-            )
-            pos_weight = torch.tensor(
-                [(len(y) - y.sum()) / (y.sum() + 1e-6)],
-                device=self.device
-            )
-            model = FTWrapped(
-                peft_ft,
-                pos_weight=pos_weight,
-                label_smooth_eps=0.10,
-                focal_gamma=2.0
-            ).to(self.device)
-
-            # 3) Daten als Torch-Tensor und auf Device schieben
-            Xf_t = torch.as_tensor(Xf, dtype=torch.float32, device=self.device)
-            y_t  = torch.as_tensor(y,  dtype=torch.float32, device=self.device)
-            split = int(0.8 * len(Xf_t))
-
-            # 4) Optuna-Training via HuggingFace-Trainer (nutzt GPU automatisch)
-            ds_train = NumpyDataset(Xf_t[:split].cpu().numpy(), y_t[:split].cpu().numpy())
-            ds_val   = NumpyDataset(Xf_t[split:].cpu().numpy(), y_t[split:].cpu().numpy())
-            args = TrainingArguments(
-                output_dir             = f"{self.model_tag}_opt_ft_tmp",
-                per_device_train_batch_size = 32,
-                num_train_epochs       = optuna_epochs,
-                learning_rate          = hp["lr"],
-                weight_decay           = 1e-2,
-                no_cuda                = False,
-                fp16                   = False,
-                logging_steps          = 50,
-                report_to              = [],
-                eval_strategy          = IntervalStrategy.EPOCH,
-                save_strategy          = IntervalStrategy.EPOCH,
-                load_best_model_at_end = True,
-                metric_for_best_model  = "eval_loss",
-            )
-            trainer = Trainer(
-                model         = model,
-                args          = args,
-                train_dataset = ds_train,
-                eval_dataset  = ds_val,
-                data_collator = numeric_collate,
-            )
-            trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=2))
-            trainer.train()
-
-            # 5) Validierungs-Loss berechnen (beide Arrays schon auf self.device)
-            # 5) Validierungs-Loss berechnen (best_metric vorm Löschen sichern)
-            best_metric = trainer.state.best_metric
-
-            # 6) Aufräumen
-            del trainer, model, peft_ft, base_ft, ds_train, ds_val
-            torch.cuda.empty_cache(); gc.collect()
-
-            # neuen HF-Eval-Loss zurückgeben
-            return best_metric
-
-
-
-    # Aufräum‑Callback nach jedem Trial
-    def _cleanup_callback(self, study, trial):
-        import shutil, glob
-        for ckpt in glob.glob("opt_ft_tmp/checkpoint-*"):
-            shutil.rmtree(ckpt, ignore_errors=True)
-        torch.cuda.empty_cache(); gc.collect()
-
-
-    # ───────────────────────── FT‑Training (Optuna + Final‑Fit) ──────────────────
+    # ---------------------------------------------------- FT-Transformer
     def _train_ft(self, X, y):
         Xf = self._flat(X)
-        # Optuna-Suche nach hyperparametern (bleibt unverändert) ...
-        ft_study = optuna.create_study(direction="minimize")
-        ft_study.optimize(
+        study = run_optuna_and_save(
             lambda t: self._ft_objective(t, Xf, y),
-            n_trials          = self.cfg["optuna"]["n_trials"],
-            callbacks         = [self._cleanup_callback],
-            show_progress_bar = False,
+            self.cfg["optuna"]["n_trials"], "ft_study", self.model_dir)
+        hp = study.best_params
+        ft = FTTransformer.make_default(
+            n_num_features=Xf.shape[1], cat_cardinalities=(), d_out=1,
+            n_blocks=hp["n_blocks"])
+        ft = get_peft_model(
+            ft, LoraConfig(r=4, lora_alpha=16, lora_dropout=0.05,
+                           target_modules=["ffn.linear_first"]))
+        posw = torch.tensor([(len(y)-y.sum())/(y.sum()+1e-6)], device=self.device)
+        # Konsistente Config: Focal-Loss-Settings kommen aus cfg["loss"]
+        use_focal = self.cfg.get("loss", {}).get("use_focal", False)
+        gamma = float(self.cfg.get("loss", {}).get("focal_gamma", 0.0)) if use_focal else 0.0
+        model = FTWrapped(
+            ft, pos_weight=posw, label_smooth_eps=0.1, focal_gamma=gamma
         )
-        best = ft_study.best_params
-        print("🟢  FT-best:", best)
-        # -------------------- finales Training --------------------
-        ft_epochs = self.cfg.get("training", {}).get("num_train_epochs", 8)  # 🆕 konfigurierbar
+        ds   = NumpyDataset(Xf, y)
+        Trainer(model, TrainingArguments(
+            output_dir=f"{self.model_dir}/ft_final",
+            per_device_train_batch_size=16, num_train_epochs=8,
+            learning_rate=hp["lr"],
+            no_cuda=(self.device.type == "cpu"),
+            fp16=False,
+            save_strategy="no", eval_strategy="no",
+            report_to=[]
+        ), train_dataset=ds, data_collator=numeric_collate).train()
+        model = model.cpu()
+        # OOF
+        tss = TimeSeriesSplit(n_splits=5)
+        oof = np.zeros(len(Xf), dtype=np.float32)
+        for tr, va in tss.split(Xf):
+            ft = FTTransformer.make_default(
+                n_num_features=Xf.shape[1], cat_cardinalities=(), d_out=1, n_blocks=hp["n_blocks"])
+            ft = get_peft_model(ft, LoraConfig(r=4, lora_alpha=16, lora_dropout=0.05,
+                                               target_modules=["ffn.linear_first"]))
+            posw = torch.tensor([(len(y[tr])-y[tr].sum())/(y[tr].sum()+1e-6)], device=self.device)
+            m = FTWrapped(ft, pos_weight=posw, label_smooth_eps=0.1, focal_gamma=gamma).to(self.device)
+            Trainer(m, TrainingArguments(output_dir=f"{self.model_dir}/ft_oof",
+                   per_device_train_batch_size=16, num_train_epochs=4, learning_rate=hp["lr"],
+                   no_cuda=(self.device.type == "cpu"), fp16=True, save_strategy="no", eval_strategy="no", report_to=[]),
+                   train_dataset=NumpyDataset(Xf[tr], y[tr]), data_collator=numeric_collate).train()
+            oof[va] = self._predict_ft_batched(m, Xf[va], batch_size=64)
+        # Val
+        val_preds = self._predict_ft_batched(model, self._flat(self.X_val), batch_size=64)
+        return model, oof, val_preds
 
-        # FT-Transformer mit besten Parametern erstellen ...
-        pos_weight = torch.tensor([(len(y) - y.sum()) / (y.sum() + 1e-6)])
-        ft = self._make_ft(Xf.shape[1], best["n_blocks"])
-        last2  = range(best["n_blocks"] - 2, best["n_blocks"])
-        target = [f"blocks.{i}.{p}" for i in last2 for p in [
-                    "attention.W_q", "attention.W_k", "attention.W_v",
-                    "attention.W_out", "ffn.linear_first", "ffn.linear_second"]]
-        ft = get_peft_model(ft, LoraConfig(r=4, lora_alpha=16, lora_dropout=0.05, target_modules=target))
-        model = FTWrapped(ft, pos_weight=pos_weight, label_smooth_eps=0.10, focal_gamma=2.0)
-        # Finales Training auf voller Trainingsmenge (auf CPU, ohne FP16)
-        final_ds   = NumpyDataset(Xf, y)
-        final_args = TrainingArguments(
-            output_dir              = f"{self.model_tag}_ft_final",
-            per_device_train_batch_size = 32,
-            num_train_epochs        = ft_epochs,
-            learning_rate           = best["lr"],
-            weight_decay            = 1e-2,
-            no_cuda                 = False,
-            fp16                    = False,
-            logging_steps           = 50,
-            report_to               = [],
-            eval_strategy           = IntervalStrategy.NO, 
-            save_strategy           = IntervalStrategy.NO,     # 👈  KEIN autosave
-        )
+    # ----------------------------------------------------- Meta-Training (robust)
+    def _build_meta_inputs(self, preds_oof: np.ndarray, preds_val: np.ndarray, L: int = 12):
+        """
+        Baut History- und Kontext-Features für den sequenziellen Meta-Stack:
+          - History: letzte L Schritte je Basismodell
+          - Kontext: rollierender LogLoss im Train (aus OOF) und optional Regime-Features
+        """
+        K = preds_oof.shape[1]
+        regime_tr = None
+        regime_va = None
+        if self.cfg["meta"].get("use_regime", False):
+            cols = self.cfg["data"]["numerical_cols"]
+            def regime_from_seq(X_seq):
+                iH, iL, iC = cols.index("high"), cols.index("low"), cols.index("Close")
+                high, low, close = X_seq[:,:,iH], X_seq[:,:,iL], X_seq[:,:,iC]
+                tr = np.maximum(high, np.roll(close,1,axis=1)) - np.minimum(low, np.roll(close,1,axis=1))
+                tr[:,0] = (high[:,0] - low[:,0])
+                atr = tr.mean(axis=1)
+                w = min(20, close.shape[1])
+                c_last = close[:,-w:]; ma = c_last.mean(axis=1); sd = c_last.std(axis=1)+1e-9
+                upper, lower = ma+2*sd, ma-2*sd
+                bbp = (close[:,-1]-lower)/(upper-lower+1e-9)
+                return np.stack([atr, bbp], axis=1).astype(np.float32)
+            regime_tr = regime_from_seq(self.X_train)
+            regime_va = regime_from_seq(self.X_val)
 
-        Trainer(model=model, args=final_args, train_dataset=final_ds, data_collator=numeric_collate).train()
-        torch.cuda.empty_cache(); gc.collect()
-        return model
+        # Rolling-Performance (nur Train,  aus OOF)
+        roll_perf_tr = []
+        eps = 1e-7
+        for j in range(K):
+            p = np.clip(preds_oof[:, j], eps, 1-eps)
+            y = self.y_train
+            ll = -(y*np.log(p) + (1-y)*np.log(1-p))
+            rp = pd.Series(ll).rolling(L, min_periods=1).mean().to_numpy().astype(np.float32)
+            roll_perf_tr.append(rp)
+        roll_perf_tr = np.stack(roll_perf_tr, axis=1)  # [Ntr, K]
 
-# ═══════════════  Meta‑Stacking / Optimieren  ═════════════════════════════
+        # History-Sequenzen
+        def make_hist(preds):
+            N = len(preds); hist = np.zeros((N, L, K), dtype=np.float32)
+            for t in range(N):
+                s = max(0, t-L+1); window = preds[s:t+1]
+                hist[t, -len(window):, :] = window
+            return hist
+        H_tr = make_hist(preds_oof)
+        H_va = make_hist(preds_val)
+
+        # Kontext (Regime + roll. Perf)
+        C_tr = roll_perf_tr if regime_tr is None else np.hstack([roll_perf_tr, regime_tr])
+        C_va = np.zeros((len(preds_val), C_tr.shape[1]), dtype=np.float32)
+        if regime_va is not None:
+            pad = C_tr.shape[1] - regime_va.shape[1]
+            C_va = np.hstack([np.zeros((len(preds_val), pad), dtype=np.float32), regime_va])
+
+        return (H_tr, C_tr, self.y_train.astype(np.float32)), \
+               (H_va, C_va, self.y_val.astype(np.float32))
+
+    def _meta_objective_seq(self, trial, H_tr, C_tr, y_tr, H_va, C_va, y_va):
+        # kleine, schnelle Suche
+        d_model = trial.suggest_int("d_token", 32, 128)
+        dropout = trial.suggest_float("dropout", 0.0, 0.3)
+        lr      = trial.suggest_float("lr", 1e-4, 1e-3, log=True)
+        n_heads = self._pick_n_heads(d_model, max_heads=4)
+        n_layers= 1
+
+        K = H_tr.shape[2]
+        meta = MetaMoE(K=K, L=H_tr.shape[1], ctx_dim=C_tr.shape[1],
+                       d_model=d_model, n_heads=n_heads, n_layers=n_layers,
+                       dropout=dropout).to(self.device)
+        opt  = torch.optim.Adam(meta.parameters(), lr=lr, weight_decay=5e-4)
+        ds   = TensorDataset(torch.tensor(H_tr), torch.tensor(C_tr), torch.tensor(y_tr))
+        dl   = DataLoader(ds, batch_size=128, shuffle=True, pin_memory=False)
+
+        eps = 0.02
+        ent_w = self.cfg["meta"].get("entropy_weight", 1e-3)
+        tv_w  = self.cfg["meta"].get("tv_weight", 1e-3)
+        meta.train()
+        for _ in range(5):
+            for H, C, yb in dl:
+                H = H.to(self.device); C = C.to(self.device); yb = yb.to(self.device)
+                w, p_now = meta(H, C)                    # [B,K], [B,K]
+                p_base = H[:, -1, :]                     # echte Basis-Preds
+                alpha  = self.cfg.get("meta", {}).get("alpha_base_mix", 1.0)
+                p_mix  = alpha * p_base + (1.0 - alpha) * p_now
+                p_hat  = (w * p_mix).sum(dim=1)
+                p_hat  = torch.nan_to_num(p_hat, nan=0.5).clamp(1e-6, 1-1e-6)
+                y_s    = torch.nan_to_num(yb*(1-eps) + 0.5*eps, nan=0.5).clamp(1e-6, 1-1e-6)
+                bce    = nn.functional.binary_cross_entropy(p_hat, y_s)
+                ent    = -(w * (w.clamp_min(1e-8)).log()).sum(dim=1).mean()
+                tv     = meta.tv_penalty().mean()
+                loss   = bce - ent_w*ent + tv_w*tv
+                opt.zero_grad(); loss.backward(); opt.step()
+        meta.eval()
+        with torch.no_grad():
+            Ht = torch.tensor(H_va, dtype=torch.float32, device=self.device)
+            Ct = torch.tensor(C_va, dtype=torch.float32, device=self.device)
+            w, p_now = meta(Ht, Ct)
+            p_base   = Ht[:, -1, :]
+            alpha    = self.cfg.get("meta", {}).get("alpha_base_mix", 1.0)
+            p_mix    = alpha * p_base + (1.0 - alpha) * p_now
+            p_hat    = (w * p_mix).sum(dim=1).cpu().numpy()
+            p_hat    = np.clip(np.nan_to_num(p_hat, nan=0.5), 1e-7, 1-1e-7)
+        return log_loss(y_va, p_hat)
+
+    def _train_meta(self, preds_oof: np.ndarray, preds_val: np.ndarray):
+        (H_tr, C_tr, y_tr), (H_va, C_va, y_va) = self._build_meta_inputs(preds_oof, preds_val)
+        best = run_optuna_and_save(
+            lambda t: self._meta_objective_seq(t, H_tr, C_tr, y_tr, H_va, C_va, y_va),
+            self.cfg["optuna"]["n_trials"], "meta_study", self.model_dir
+        ).best_params
+
+        d_model = best["d_token"]; dropout = best["dropout"]; n_heads = self._pick_n_heads(d_model, max_heads=4)
+        meta = MetaMoE(K=H_tr.shape[2], L=H_tr.shape[1], ctx_dim=C_tr.shape[1],
+                       d_model=d_model, n_heads=n_heads, n_layers=1,
+                       dropout=dropout).to(self.device)
+        opt  = torch.optim.Adam(meta.parameters(), lr=best["lr"], weight_decay=5e-4)
+        ds   = TensorDataset(torch.tensor(H_tr), torch.tensor(C_tr), torch.tensor(y_tr))
+        dl   = DataLoader(ds, batch_size=128, shuffle=True)
+        eps  = 0.02
+        ent_w = self.cfg["meta"].get("entropy_weight", 1e-3)
+        tv_w  = self.cfg["meta"].get("tv_weight", 1e-3)
+        meta.train()
+        for _ in range(10):
+            for H, C, yb in dl:
+                H = H.to(self.device); C = C.to(self.device); yb = yb.to(self.device)
+                w, p_now = meta(H, C)
+                p_base = H[:, -1, :]
+                alpha  = self.cfg.get("meta", {}).get("alpha_base_mix", 1.0)
+                p_mix  = alpha * p_base + (1.0 - alpha) * p_now
+                p_hat  = (w * p_mix).sum(dim=1)
+                p_hat  = torch.nan_to_num(p_hat, nan=0.5).clamp(1e-6, 1-1e-6)
+                y_s    = torch.nan_to_num(yb*(1-eps) + 0.5*eps, nan=0.5).clamp(1e-6, 1-1e-6)
+                bce    = nn.functional.binary_cross_entropy(p_hat, y_s)
+                ent    = -(w * (w.clamp_min(1e-8)).log()).sum(dim=1).mean()
+                tv     = meta.tv_penalty().mean()
+                loss   = bce - ent_w*ent + tv_w*tv
+                opt.zero_grad(); loss.backward(); opt.step()
+        return meta.cpu()
+
+    # ----------------------------------------------------------- optimize
     def optimize(self, X, y):
-        X_flat = self._flat(X)
-        # ① Basis-Modelle trainieren
-        self.rf_list  = self._train_rf(X, y)
-        self.ft       = self._train_ft(X, y)    # läuft jetzt auf CPU
-        self.lgb_list = self._train_lgb(X, y)
-        self.xgb_list = self._train_xgb(X, y)
-        self.cnn      = self._train_cnn(X, y)
-        # ② Vorhersagen für den Validierungs-Fold erzeugen
+
+        print("\n=== RF: Optuna + Final-Training ===", flush=True)
+        self.rf_list,  rf_oof,  rf_val  = self._train_rf(X, y)
+        print("=== RF: fertig ===", flush=True)
+
+        print("\n=== LGB: Optuna startet ===", flush=True)
+        self.lgb_list, lgb_oof, lgb_val = self._train_lgb(X, y)
+        print("=== LGB: fertig ===", flush=True)
+
+        print("\n=== XGB: Optuna startet ===", flush=True)
+        self.xgb_list, xgb_oof, xgb_val = self._train_xgb(X, y)
+        print("=== XGB: fertig ===", flush=True)
+
+        print("\n=== CNN: Optuna startet ===", flush=True)
+        self.cnn,      cnn_oof, cnn_val = self._train_cnn(X, y)
+        print("=== CNN: fertig ===", flush=True)
+
+        print("\n=== FT: Optuna startet ===", flush=True)
+        self.ft,        ft_oof,  ft_val = self._train_ft(X, y)
+        print("=== FT: fertig ===", flush=True)
+
+
+        # Stacking-Matrizen: OOF (Train) & VAL (Val-Fold) — defensiv clippen
+        preds_oof = np.vstack([rf_oof, lgb_oof, xgb_oof, ft_oof, cnn_oof]).T
+        preds_val = np.vstack([rf_val, lgb_val, xgb_val, ft_val, cnn_val]).T
+        preds_oof = np.clip(np.nan_to_num(preds_oof, nan=0.5), 1e-7, 1-1e-7).astype(np.float32)
+        preds_val = np.clip(np.nan_to_num(preds_val, nan=0.5), 1e-7, 1-1e-7).astype(np.float32)
+
+
+
+        # Meta-Stack trainieren (OOF + VAL → sequenzieller Meta-Encoder)
+        try:
+            self.meta = self._train_meta(preds_oof, preds_val)
+        except Exception as e:
+            print(f"⚠️  Meta-Training fehlgeschlagen: {e}. Fallback auf einfache LogReg.")
+            # Fallback, damit das Ensemble *immer* fertig gebaut wird:
+            from sklearn.linear_model import LogisticRegression
+            Xtr = preds_oof
+            Xva = preds_val
+            lr  = LogisticRegression(max_iter=1000)
+            lr.fit(Xtr, self.y_train)
+            # kleiner Wrapper, damit save_model funktioniert
+            class _MetaFallback(nn.Module):
+                def __init__(self, sk):
+                    super().__init__(); self.sk = sk
+                def forward(self, x):
+                    with torch.no_grad():
+                        p = torch.tensor(self.sk.predict_proba(x.cpu().numpy())[:,1])
+                    return p
+            self.meta = _MetaFallback(lr).cpu()
+
+        # Temperature-Scaling (FT)
         X_val_flat = self._flat(self.X_val)
-
-        def mean_preds(models, Xtab, kind):
-            if kind == "rf":
-                return np.mean([m.predict_proba(Xtab)[:, 1] for m in models], axis=0)
-            if kind == "lgb":
-                return np.mean([m.predict(Xtab) for m in models], axis=0)
-            if kind == "xgb":
-                return np.mean([m.predict(xgb.DMatrix(Xtab)) for m in models], axis=0)
-
-        # FT-Predictions
-        ft_preds = torch.sigmoid(
-            torch.tensor(self._predict_ft_logits(X_val_flat), dtype=torch.float32)
-        ).numpy()
-
-        # CNN-Predictions
-        cnn_preds = torch.sigmoid(
-            self.cnn(
-                torch.tensor(self.X_val, dtype=torch.float32, device=self.device)
-                    .permute(0, 2, 1)
-            )
-        ).detach().cpu().numpy()
-
-        # Jetzt alle vier Basis-Modelle stapeln
-        preds_val = np.stack([
-            mean_preds(self.rf_list,  X_val_flat, "rf"),
-            mean_preds(self.lgb_list, X_val_flat, "lgb"),
-            mean_preds(self.xgb_list, X_val_flat, "xgb"),
-            ft_preds,
-            cnn_preds
-        ], axis=1).astype(np.float32)
-
-
-        # ③ Meta-Modell nur auf dem Val-Fold trainieren
-        # ---------- Meta-Training ----------
-        meta_epochs = self.cfg.get("meta", {}).get("num_train_epochs", 10)   # 🆕 konfigurierbar
-        # 🔎 ***Sanity-Checks einfügen***
-        assert not np.isnan(preds_val).any(), "NaN in preds_val"
-        assert preds_val.shape[0] == len(self.y_val), "Shape mismatch preds_val / y_val"
-
-        meta_ds = MetaDataset(preds_val, self.y_val)   # ← liefert dict {"preds": …}
-
-        meta_args = TrainingArguments(
-            output_dir              = f"{self.model_tag}_meta_runs",
-            per_device_train_batch_size = 128,
-            num_train_epochs        = meta_epochs,
-            learning_rate           = 1e-3,
-            no_cuda                 = False,
-            fp16                    = False,
-            logging_steps           = 50,
-            report_to               = [],
-            eval_strategy           = IntervalStrategy.NO, 
-            save_strategy           = IntervalStrategy.NO,   # 👈  kein Autosave
+        val_loader = DataLoader(
+            TensorDataset(torch.tensor(X_val_flat, dtype=torch.float32),
+                          torch.tensor(self.y_val,   dtype=torch.float32)),
+            batch_size=512, shuffle=False
         )
+        T = calibrate_temperature(_FTLogits(self.ft), val_loader)
+        torch.save({"temperature": T}, self.model_dir / "temp_scaler.pt")
 
-        self.meta = MetaTransformer(self.cfg, n_models=preds_val.shape[1]).to(self.device)
-        trainer = Trainer(model=self.meta, args=meta_args, train_dataset=meta_ds, data_collator=meta_collate)
-        trainer.train()
-        # Speicher freigeben nach dem Meta-Training
-        del trainer, meta_ds, preds_val
-        torch.cuda.empty_cache(); gc.collect()
-        class Dummy: best_params = {}
-        return Dummy()
-
-# ═════════════════════ Speichern ══════════════════════════════════════════
-    def save_model(self, _):
-        self.model_dir.mkdir(parents=True, exist_ok=True)
-        torch.save(self.ft.ft.state_dict(), self.model_dir / "ft.pt")
-        torch.save(self.ft.state_dict(),    self.model_dir / "ft_wrap.pt")
-        torch.save(self.cnn.state_dict(),   self.model_dir / "cnn.pt")
-        torch.save(self.meta.state_dict(),  self.model_dir / "meta.pt")
-
-        import joblib
+    # ------------------------------------------------------------- save
+    def save_model(self, *_):
+        self.model_dir.mkdir(exist_ok=True)
+        torch.save(self.ft.state_dict(),   self.model_dir / "ft.pt")
+        torch.save(self.cnn.state_dict(),  self.model_dir / "cnn.pt")
+        torch.save(self.meta.state_dict(), self.model_dir / "meta.pt")
         joblib.dump(self.rf_list,  self.model_dir / "rf_list.pkl")
         joblib.dump(self.lgb_list, self.model_dir / "lgb_list.pkl")
         joblib.dump(self.xgb_list, self.model_dir / "xgb_list.pkl")
-        print(f"✅  Modelle gespeichert in {self.model_dir}")
+        print(f"✅ Modelle gespeichert → {self.model_dir}")
+
+    # ----------------------------------------------------- Hilfs-Methoden
+    @staticmethod
+    def _flat(X): return X.reshape(len(X), -1)
+    @staticmethod
+    def _pick_n_heads(d_model: int, max_heads: int = 8) -> int:
+        """
+        Wählt die größte Potenz-von-2 (1,2,4,8) <= max_heads, die d_model teilt.
+        Gewährleistet: d_model % n_heads == 0 (Pflicht für MultiheadAttention).
+        """
+        for h in (8, 4, 2, 1):
+            if h <= max_heads and d_model % h == 0:
+                return h
+        return 1
+        # ---------------------------------------------------------------- build_features
+    def build_features(self, X):
+        """
+        Placeholder – hier könntest du später Feature-Engineering einbauen.
+        Aktuell: Identity-Funktion.
+        """
+        return X
+
+    # ---------------------------------------------------------------- train_final
+    def train_final(self, *_, **__):
+        """
+        Gibt das Meta-Modell zurück, damit BaseTrainer.run()
+        es nach dem Training abspeichern kann.
+        """
+        return self.meta
+
+    # ------------------------ Optuna-Objectives (gekürzt im Chat) -------
+    # ───── Random-Forest – Optuna-Objective ─────────────────────────
+    def _rf_objective(self, trial, Xf: np.ndarray, y: np.ndarray):
+        from sklearn.model_selection import train_test_split
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.metrics import log_loss
+
+        X_flat = Xf
+        
+        X_tr, X_va, y_tr, y_va = train_test_split(
+            X_flat, y, test_size=0.2, shuffle=False
+        )
+
+        params = {
+            "n_estimators":      trial.suggest_int("n_estimators",      50, 400),
+            "max_depth":         trial.suggest_int("max_depth",          3, 20),
+            "min_samples_split": trial.suggest_int("min_samples_split",  2, 10),
+            "max_features":      trial.suggest_categorical(
+                                    "max_features", ["sqrt", "log2", None]),
+            "n_jobs":     -1,
+            "random_state": 42,
+        }
+        model = RandomForestClassifier(**params)
+        model.fit(X_tr, y_tr)
+        proba = model.predict_proba(X_va)[:, 1]
+        return log_loss(y_va, proba)
+
+    # ───── LightGBM – Optuna-Objective ──────────────────────────────
+    def _lgb_objective(self, trial, Xf: np.ndarray, y: np.ndarray):
+        import lightgbm as lgb
+        from sklearn.metrics import log_loss
+        from sklearn.model_selection import train_test_split
+
+        # Split
+        X_tr, X_va, y_tr, y_va = train_test_split(Xf, y, test_size=0.2, shuffle=False)
+
+        # Optuna-Suche inkl. fixer Rundenanzahl
+        params = {
+            "objective":        "binary",
+            "metric":           "binary_logloss",
+            "learning_rate":    trial.suggest_float("learning_rate", 0.005, 0.1, log=True),
+            "num_leaves":       trial.suggest_int("num_leaves", 15, 150),
+            "feature_fraction": trial.suggest_float("feature_fraction", 0.5, 1.0),
+            "bagging_fraction": trial.suggest_float("bagging_fraction", 0.5, 1.0),
+            "verbosity":        -1,
+        }
+        n_rounds = trial.suggest_int("num_boost_round", 150, 800)  # <— statt early stopping
+
+        dtr = lgb.Dataset(X_tr, label=y_tr)
+        dva = lgb.Dataset(X_va, label=y_va, reference=dtr)
+
+        model = lgb.train(params, dtr, num_boost_round=n_rounds, valid_sets=[dva])
+        preds = model.predict(X_va)  # nutzt alle n_rounds
+        return log_loss(y_va, preds)
+
+    # ───── XGBoost – Optuna-Objective ───────────────────────────────
+    def _xgb_objective(self, trial, Xf: np.ndarray, y: np.ndarray):
+        from sklearn.model_selection import train_test_split
+        import xgboost as xgb
+        from sklearn.metrics import log_loss
+
+        X_flat = Xf
+        X_tr, X_va, y_tr, y_va = train_test_split(
+            X_flat, y, test_size=0.2, shuffle=False
+        )
+
+        params = {
+            "objective":        "binary:logistic",
+            "eval_metric":      "logloss",
+            "eta":              trial.suggest_float("eta", 0.01, 0.2, log=True),
+            "max_depth":        trial.suggest_int("max_depth", 3, 10),
+            "subsample":        trial.suggest_float("subsample", 0.6, 1.0),
+            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+            "lambda":           trial.suggest_float("lambda_l2", 1e-3, 10.0, log=True),
+        }
+        dtr = xgb.DMatrix(X_tr, label=y_tr)
+        dva = xgb.DMatrix(X_va, label=y_va)
+        model = xgb.train(
+            params, dtr, num_boost_round=500,
+            evals=[(dva, "val")], early_stopping_rounds=30,
+            verbose_eval=10
+        )
+        preds = model.predict(dva, iteration_range=(0, model.best_iteration))
+        return log_loss(y_va, preds)
+
+    # ───── Simple-CNN – Optuna-Objective ────────────────────────────
+    def _cnn_objective(self, trial):
+        import torch, torch.nn as nn
+        from sklearn.model_selection import train_test_split
+        from sklearn.metrics import log_loss
+
+        lr        = trial.suggest_float("lr", 1e-4, 5e-3, log=True)
+        n_filters = trial.suggest_int("n_filters", 16, 64)
+
+        model = SimpleCNN(n_feat=self.X_train.shape[2],
+                        n_filters=n_filters).to(self.device)
+        crit  = nn.BCEWithLogitsLoss()
+        opt   = torch.optim.Adam(model.parameters(), lr=lr)
+
+        X_tr, X_va, y_tr, y_va = train_test_split(
+            self.X_train, self.y_train, test_size=0.2, shuffle=False
+        )
+        X_tr_t = torch.tensor(X_tr, dtype=torch.float32,
+                            device=self.device).permute(0, 2, 1)
+        y_tr_t = torch.tensor(y_tr, dtype=torch.float32, device=self.device)
+
+        model.train()
+        for _ in range(5):
+            opt.zero_grad()
+            loss = crit(model(X_tr_t).squeeze(), y_tr_t)
+            loss.backward(); opt.step()
+
+        model.eval()
+        with torch.no_grad():
+            X_va_t = torch.tensor(X_va, dtype=torch.float32, device=self.device).permute(0, 2, 1)
+            logits_t = model(X_va_t).squeeze()                 # Tensor, kein zweiter Forward-Pass
+            probs = torch.sigmoid(logits_t).cpu().numpy()      # stabile Sigmoid in Torch
+            probs = np.clip(probs, 1e-7, 1 - 1e-7)             # gegen 0/1 clampen
+        return log_loss(y_va, probs)
+
+
+    # ───────────────── FT-Transformer Optuna-Objective ──────────────────
+    def _ft_objective(self, trial, Xf: np.ndarray, y: np.ndarray) -> float:
+        """
+        Optuna-Ziel­funktion:
+          • lr        – Lernrate
+          • n_blocks  – Transformer-Blöcke
+        liefert den Validierungs-LogLoss (je kleiner, desto besser)
+        """
+        import torch
+        from torch.utils.data import DataLoader, TensorDataset
+        from transformers import Trainer, TrainingArguments
+
+        # 1) Hyperparameter-Vorschläge
+        hp = {
+            "lr":       trial.suggest_float("lr", 1e-6, 5e-4, log=True),
+            "n_blocks": trial.suggest_int(  "n_blocks", 2,     6),
+        }
+
+        # 2) FT-Backbone + LoRA erstellen
+        base_ft = FTTransformer.make_default(
+            n_num_features    = Xf.shape[1],
+            cat_cardinalities = (),
+            d_out             = 1,
+            n_blocks          = hp["n_blocks"]
+        )
+        peft_ft = get_peft_model(
+            base_ft,
+            LoraConfig(r=4, lora_alpha=16, lora_dropout=0.05,
+                       target_modules=["ffn.linear_first"])
+        )
+
+        # 3) Focal/BCE-Wrapper mit pos_weight
+        pos_weight = torch.tensor(
+            [(len(y) - y.sum()) / (y.sum() + 1e-6)],
+            device=self.device
+        )
+        gamma = 0.0
+        if self.cfg.get("loss", {}).get("use_focal", False):
+            gamma = float(self.cfg.get("loss", {}).get("focal_gamma", 0.0))
+        model = FTWrapped(
+            ft_base          = peft_ft,
+            pos_weight       = pos_weight,
+            label_smooth_eps = 0.10,
+            focal_gamma      = gamma
+        ).to(self.device)
+
+        # 4) 80/20-Split für Optuna-Val
+        split = int(0.8 * len(Xf))
+        X_tr, X_va = Xf[:split], Xf[split:]
+        y_tr, y_va = y [:split], y [split:]
+
+        ds_tr = NumpyDataset(X_tr, y_tr)
+        ds_va = NumpyDataset(X_va, y_va)
+
+        # 5) HF-Trainer-Setup
+        args = TrainingArguments(
+            output_dir             = f"{self.model_dir}/opt_ft_tmp",
+            per_device_train_batch_size = 16,
+            per_device_eval_batch_size  = 32,
+            num_train_epochs       = self.cfg["training"]["ft_optuna_epochs"],
+            learning_rate          = hp["lr"],
+            weight_decay           = 1e-2,
+            no_cuda                = (self.device.type == "cpu"),
+            fp16                   = False,
+            logging_steps          = 50,
+            report_to              = [],
+            eval_strategy          = IntervalStrategy.EPOCH,
+            save_strategy          = IntervalStrategy.EPOCH,
+            load_best_model_at_end = True,
+            metric_for_best_model  = "eval_loss",
+        )
+        trainer = Trainer(
+            model         = model,
+            args          = args,
+            train_dataset = ds_tr,
+            eval_dataset  = ds_va,
+            data_collator = numeric_collate,
+            compute_metrics= None,
+        )
+        trainer.add_callback(EarlyStoppingCallback(
+            early_stopping_patience = 2)
+        )
+        trainer.train()
+
+        # 6) Eval-Loss des besten Checkpoints ermitteln
+        eval_res = trainer.evaluate(ds_va)
+        val_loss = float(eval_res["eval_loss"])
+
+        # Aufräumen (RAM & GPU-Cache)
+        del trainer, model, peft_ft, base_ft, ds_tr, ds_va
+        torch.cuda.empty_cache(); gc.collect()
+
+        return val_loss
+
+ # ========================================================================== #
+ # MetaMoEclassTrainer
+ # ========================================================================== #
+class MetaMoE(nn.Module):
+    def __init__(self, K:int, L:int, ctx_dim:int, d_model:int=96,
+                 n_heads:int=2, n_layers:int=1, dropout:float=0.2):
+        super().__init__()
+        self.K, self.L = K, L
+        self.input_proj = nn.Linear(K, d_model)
+        enc_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=n_heads,
+                                               dim_feedforward=4*d_model, dropout=dropout,
+                                               batch_first=True)
+        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=n_layers)
+        self.ctx_proj = nn.Linear(ctx_dim, d_model)
+        # Gewichts-Kopf (Softmax über K)
+        self.w_head = nn.Linear(d_model, K)
+        # Per-Modell-Probs Kopf (sigmoid) – „auch eigenständige Vorhersagen“
+        self.p_head = nn.Linear(d_model, K)
+        self.dropout = nn.Dropout(dropout)
+        self._last_weights = None  # für TV-Penalty
+
+    def forward(self, hist: torch.Tensor, ctx: torch.Tensor):
+        """
+        hist: [B, L, K]  – Pred-Historie der K Modelle (zuletzt rechts)
+        ctx : [B, C]     – Kontext (Regime, Rolling-Perf)
+        """
+        x = self.input_proj(hist)                      # [B,L,d]
+        x = self.encoder(x)                            # [B,L,d]
+        x_last = x[:, -1, :]                           # letzter Schritt
+        x_fuse = x_last + self.ctx_proj(ctx)           # einfache Fusion
+        x_fuse = self.dropout(x_fuse)
+        w = nn.functional.softmax(self.w_head(x_fuse), dim=-1)  # [B,K]
+        p_now = torch.sigmoid(self.p_head(x_fuse))              # [B,K]
+        # TV speichern: weights entlang Sequenz (approx: letzten beiden Schritte)
+        self._last_weights = w.detach()
+        return w, p_now
+
+    def tv_penalty(self):
+        # einfache Approximation: Glätte innerhalb Batch (Lauf-Batch als t,t-1)
+        if self._last_weights is None:
+            return torch.tensor(0.0, device=next(self.parameters()).device)
+        # L1-Norm gegenüber Batch-Shift (surrogate)
+        w = self._last_weights
+        return (w[1:] - w[:-1]).abs().mean() if w.size(0) > 1 else torch.tensor(0.0, device=w.device)
+
+# --- Ende MetaMoE -----------------------------------------------------------
