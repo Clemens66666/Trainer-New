@@ -1,627 +1,732 @@
 #!/usr/bin/env python
-# evaluate_plus.py
+# -*- coding: utf-8 -*-
+
 """
-Generische Evaluations-Pipeline für ML-Trading-Modelle
+evaluate.py — Ensemble-/Komponenten-Evaluierung für HybridLongTrendTrainer
 
-Funktionen
-----------
-* Ladet Tick- oder Kerz­endaten, resampelt optional in Minuten-Bars
-* Erzeugt Trend-Labels (Directional-Change-Methode)
-* Berechnet technische Features (nutzt utils.features.enrich)
-* Baut Sequenzen und ruft passende Modell-Komponenten auf
-* Aggregiert Vorhersagen, führt Meta-Ensemble aus (falls vorhanden)
-* Gibt Klassifikations- sowie Trading-Metriken aus
-* Erstellt optionale Visualisierungen und Feature-Analysen
-* Unterstützt mehrere --model-dir Angaben für Modell­vergleich
+Fähigkeiten
+-----------
+- DA/MDA (Directional Accuracy; MDA mit neutraler Klasse via Band um 0.5)
+- Pesaran–Timmermann (DA-z-Test) auf aktiven Phasen (ohne "flat")
+- Kalibrierung: Brier-Score, Expected Calibration Error (ECE), Reliability-Plot
+- Trading-Metriken einer einfachen Schwellen-Strategie:
+  Win-Rate, Profit-Factor, Profit/Loss-Ratio, Expectancy (APPT)
+- Komponenten-Report (RF, LGB, XGB, FT, CNN), "only-X" und "leave-one-out"
+- Robust, wenn einzelne Komponenten fehlen
+- Optional: MetaMoE-Ensemble, wenn rekonstruierbar
 
-Abhängigkeiten: pandas, numpy, PyYAML, scikit-learn, torch, rtdl, matplotlib,
-seaborn (nur für Plots), joblib (Pickle), tqdm (Progress-Bar)
-
-Beispiel
---------
-python evaluate_plus.py \
-    --model-dir models/hybrid_20250802 \
-    --test-file data/rawtickdata3.txt \
-    --seq-len 24 --bar-min 60 \
-    --plots
+Aufrufbeispiel (PowerShell)
+---------------------------
+python .\\evaluate.py `
+  --model-dir models\\hybrid_longtrend_20250810_232923 `
+  --test-file data\\longtrend.csv `
+  --plots
 """
-# ---------------------------------------------------------------------------
 
-import argparse, json, yaml, sys, inspect, pickle, math, textwrap, warnings
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
+
+# Metrics
 from sklearn.metrics import (
-    accuracy_score, roc_auc_score, confusion_matrix,
-    classification_report, precision_recall_curve, auc
+    accuracy_score,
+    roc_auc_score,
+    confusion_matrix,
+    classification_report,
+    brier_score_loss,
 )
-# ------------- NEW IMPORTS --------------------
-from trainers.hybrid_longtrend_trainer import extract_regime_features
-import json
-from sklearn.preprocessing import StandardScaler
+
+# ML libs
+import joblib
 import torch
-from torch.utils.data import DataLoader, TensorDataset
-from tqdm import tqdm
+import xgboost as xgb
+import lightgbm as lgb
 
-# Suppress noisy warnings (optional)
-warnings.filterwarnings("ignore", category=FutureWarning)
+# ---- Projekt-Imports (Trainer, Features, Regime) ----
+# MetaMoE & SimpleCNN leben (bei dir) im Hybrid-Trainer-File
+from trainers.hybrid_longtrend_trainer import SimpleCNN, FTWrapped, extract_regime_features
+# MetaMoE kann in neueren Versionen im gleichen Modul definiert sein:
+try:
+    from trainers.hybrid_longtrend_trainer import MetaMoE  # neues Meta
+except Exception:
+    MetaMoE = None
 
-# ---------------------------------------------------------------------------
-# -----------------------------  Helper-Funktionen  -------------------------
-# ---------------------------------------------------------------------------
-
-def json_or_yaml(
-    file_path: Path,
-    yaml_keys: List[str],
-    cfg_fallback: Dict[str, Any],
-    encoding: str = "utf-8"
-) -> Dict[str, Any]:
-    """
-    1) Wenn *file_path* existiert -> JSON laden
-    2) Sonst versuche die Keys im globalen YAML-Dict cfg_fallback zu finden
-    3) Fehlt alles: gib leeres Dict zurück
-    """
-    if file_path.exists():
-        with open(file_path, "r", encoding=encoding) as f:
-            return json.load(f)
-    # YAML-Pfad im Fallback nachschlagen
-    cur = cfg_fallback
-    for k in yaml_keys:
-        if isinstance(cur, dict) and k in cur:
-            cur = cur[k]
-        else:
-            return {}
-    return cur if isinstance(cur, dict) else {}
-
-
-def adapt_ft_cfg(ft_cfg: Dict[str, Any], cls) -> Dict[str, Any]:
-    """
-    Entfernt Keys, die der FTTransformer (oder Ersatz-Klasse) nicht kennt,
-    und mappt veraltete Namen (z.B. d_model -> d_token).
-    """
-    if not ft_cfg:
+# --------------------------------------------------------------------
+# Hilfsfunktionen: Laden, Preprocessing
+# --------------------------------------------------------------------
+def load_yaml_cfg(model_dir: Path) -> Dict:
+    import yaml
+    cfg_path = model_dir / "config.yaml"
+    if not cfg_path.exists():
         return {}
-    sig = inspect.signature(cls.__init__)
-    valid_keys = set(sig.parameters.keys())
-    mapping = {"d_model": "d_token"}  # Beispiel-Alias
-    adapted = {}
-    for k, v in ft_cfg.items():
-        k2 = mapping.get(k, k)
-        if k2 in valid_keys:
-            adapted[k2] = v
-    return adapted
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
-def filter_cfg(cfg: dict, cls):
-     """
-     Entfernt alle Keys, die der Ziel-Klasse nicht kennt – so vermeiden wir
-     TypeErrors wie 'unexpected keyword'.
-     """
-     if not cfg:
-         return {}
-     valid = set(inspect.signature(cls.__init__).parameters)
-     return {k: v for k, v in cfg.items() if k in valid}
-
-def mean_preds(pred_lists: List[np.ndarray]) -> np.ndarray:
-    """Mittelt eine Liste gleicher NumPy-Arrays (axis=0)"""
-    if not pred_lists:
-        return np.array([])
-    stacked = np.vstack(pred_lists)
-    return stacked.mean(axis=0)
-
-
-def load_pickle(path: Path):
-    """Kompatibles Laden für Pickles / joblib"""
+def safe_joblib_or_pickle(path: Path):
     if not path.exists():
         return None
     try:
-        import joblib
         return joblib.load(path)
     except Exception:
+        import pickle
         with open(path, "rb") as f:
             return pickle.load(f)
 
-
-# ------------------  Daten-Utilities: Tick → Bar & Labeling  ---------------
-
-# ---------------------------------------------------------------------------
-# Daten-Utility: Tick-Datei ➜ Minuten-Bars
-# ---------------------------------------------------------------------------
-def iter_ticks_as_bars(
-    tick_file: Path,
-    bar_min: int,
-    chunksize: int = 2_000_000,
-):
+def read_test_data(path: Path) -> pd.DataFrame:
     """
-    Liest eine große Tick-Datei stückweise ein und resampelt in OHLCV-Bars.
-    Erkennt viele verschiedene Kopfzeilen-Schreibweisen.
-
-    Erwartete Minimal-Spalten nach Umbenennung:
-        timestamp • price • volume
-    Preis_bid / price_ask werden optional als Extra-Features belassen.
+    Liest CSV/TXT. Erwartet mind. timestamp  OHLC oder price.
     """
-    # ------------------------------------------------------------
-    # 1) Lesestrategie: zuerst mit Standard-usecols, sonst Fallback
-    # ------------------------------------------------------------
-    read_kwargs = dict(
-        chunksize=chunksize,
-        low_memory=False,
-    )
+    df = pd.read_csv(path)
+    # unify timestamp
+    ts_candidates = [c for c in df.columns if c.lower() in ("timestamp","time","datetime","date")]
+    if not ts_candidates:
+        raise ValueError("Keine Zeitspalte gefunden (timestamp/time/datetime/date).")
+    df = df.rename(columns={ts_candidates[0]: "timestamp"})
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"]).sort_values("timestamp").set_index("timestamp")
 
-    try:
-        chunk_iter = pd.read_csv(
-            tick_file,
-            usecols=["timestamp", "price", "volume"],
-            parse_dates=["timestamp"],
-            dtype={"price": "float64", "volume": "float64"},
-            **read_kwargs,
-        )
-    except ValueError:
-        # Header weicht ab → ohne usecols lesen, später umbenennen
-        chunk_iter = pd.read_csv(tick_file, **read_kwargs)
+    # unify price/ohlc
+    cols = {c.lower(): c for c in df.columns}
+    if "price" not in cols:
+        # map close→price wenn möglich
+        close_col = None
+        for k in ("close","Close","last"):
+            if k in df.columns:
+                close_col = k; break
+        if close_col is None:
+            raise ValueError("Keine 'price' oder 'close' Spalte gefunden.")
+        df["price"] = pd.to_numeric(df[close_col], errors="coerce")
+    else:
+        df["price"] = pd.to_numeric(df["price"], errors="coerce")
 
-    # ------------------------------------------------------------
-    # 2) Jeder Chunk wird vereinheitlicht und in Bars gewandelt
-    # ------------------------------------------------------------
-    for chunk in chunk_iter:
-        # ---------- a) Spalten umbenennen ----------
-        rename_map = {
-            # Zeitstempel-Aliase
-            "timestamp": "timestamp", "time": "timestamp",
-            "datetime": "timestamp", "date": "timestamp",
-            "datime": "timestamp",
+    # OHLC harmonisieren (optional)
+    for want, cands in [("open", ["open","Open"]),
+                        ("high", ["high","High"]),
+                        ("low",  ["low","Low"]),
+                        ("Close",["Close","close","last","price"])]:
+        for c in cands:
+            if c in df.columns:
+                df[want] = pd.to_numeric(df[c], errors="coerce")
+                break
+    df = df.dropna(subset=["price"])
+    return df
 
-            # Preis-Aliase
-            "price": "price", "close": "price", "last": "price",
-            "bid": "price", "ask": "price",
-            "tick_last": "price", "tick_bid": "price_bid",
-            "tick_ask": "price_ask",
-
-            # Volumen-Aliase
-            "volume": "volume", "size": "volume",
-            "qty": "volume", "tick_volume": "volume",
-        }
-
-        chunk.rename(
-            columns={
-                c: rename_map[c.lower()]
-                for c in chunk.columns
-                if c.lower() in rename_map
-            },
-            inplace=True,
-        )
-
-        # Pflicht-Spalten prüfen
-        if "timestamp" not in chunk.columns:
-            raise ValueError(
-                f"Keine Zeitstempel-Spalte in {tick_file} gefunden!"
-            )
-        if "price" not in chunk.columns:
-            raise ValueError(
-                f"Keine Preis-Spalte in {tick_file} gefunden!"
-            )
-        # Volume not mandatory for price computations; set 0 if absent
-        if "volume" not in chunk.columns:
-            chunk["volume"] = 0.0
-
-        # ---------- b) Zeitstempel & Index ----------
-        chunk["timestamp"] = pd.to_datetime(chunk["timestamp"], errors="coerce")
-        chunk = chunk.set_index("timestamp").sort_index()
-        chunk = chunk[~chunk.index.duplicated(keep="last")]
-
-        # ---------- c) Numerische Spalten in float ----------
-        for num_col in ["price", "volume", "price_bid", "price_ask"]:
-            if num_col in chunk.columns:
-                chunk[num_col] = pd.to_numeric(
-                    chunk[num_col], errors="coerce"
-                )
-
-        # ---------- d) Resampling in Minuten-Bars ----------
-        bar = chunk.resample(f"{bar_min}min").agg(
-            price=("price", "last"),
-            open=("price", "first"),
-            high=("price", "max"),
-            low=("price", "min"),
-            close=("price", "last"),
-            volume=("volume", "sum"),
-            # price_bid/ask optional:
-            price_bid=("price_bid", "last") if "price_bid" in chunk else np.nan,
-            price_ask=("price_ask", "last") if "price_ask" in chunk else np.nan,
-        )
-
-        # Nur vollständige Bars behalten
-        bar = bar.dropna(subset=["price", "open", "high", "low", "close"])
-        if not bar.empty:
-            yield bar
-
-
-
-# -----------  Trend-Labeling (Directional-Change + Trend-Scan)  ------------
-
-def _directional_change(price: pd.Series, dc_thres: float) -> pd.Series:
+def make_trend_side_dc(price: pd.Series,
+                       dc_thres: float = 0.5,
+                       windows: Tuple[int,...] = (5,15,30),
+                       tau: int = 1) -> pd.Series:
     """
-    Primitive DC-Phase-Erkennung: +1 = Up, -1 = Down, 0 = Idle
+    Primitive Directional-Change-Phasen -> Mehrheits-Scan -> trend_side ∈ {-1,0,1}
     """
-    price = pd.to_numeric(price, errors="coerce").astype(np.float64)
-    ref = price.iloc[0]
-    phase = np.zeros(len(price), dtype=int)
-    dc = np.zeros(len(price), dtype=int)
-
-    last_ext = ref
-    direction = 0  # 1 := up, -1 := down, 0 := neutral
-    for i, p in enumerate(price):
-        move = (p / last_ext - 1) * 100  # Prozent
+    p = pd.to_numeric(price, errors="coerce").astype(float)
+    last_ext = p.iloc[0]
+    phase = np.zeros(len(p), dtype=int)
+    direction = 0
+    for i, val in enumerate(p):
+        move = (val / last_ext - 1.0) * 100.0
         if direction >= 0 and move <= -dc_thres:
-            direction = -1
-            last_ext = p
-            dc[i] = direction
-        elif direction <= 0 and move >= dc_thres:
-            direction = 1
-            last_ext = p
-            dc[i] = direction
+            direction = -1; last_ext = val
+        elif direction <= 0 and move >=  dc_thres:
+            direction =  1; last_ext = val
         phase[i] = direction
-    return pd.Series(phase, index=price.index, name="dc_phase")
+    dc = pd.Series(phase, index=price.index)
+    scans = []
+    for w in windows:
+        scans.append(dc.rolling(w, min_periods=w).apply(lambda a: np.sign(a.sum()) if abs(a.sum())>=tau else 0.0))
+    scans = pd.concat(scans, axis=1).fillna(0.0)
+    smean = scans.mean(axis=1)
+    side = smean.apply(lambda x: 1 if x>0 else (-1 if x<0 else 0)).astype(int)
+    side.name = "trend_side"
+    return side
 
+# --------------------------------------------------------------------
+# Modell-Lader
+# --------------------------------------------------------------------
+def try_load_rf(model_dir: Path):
+    for name in ["rf_list.pkl","rf.pkl","rf_list.joblib"]:
+        p = model_dir / name
+        obj = safe_joblib_or_pickle(p)
+        if obj:
+            return obj
+    return []
 
-def make_trend_labels(
-    df: pd.DataFrame,
-    dc_thres: float = 0.5,
-    w_list: List[int] = (5, 15, 30),
-    tau: int = 1
-) -> pd.DataFrame:
+def try_load_lgb(model_dir: Path):
+    for name in ["lgb_list.pkl","lgb.pkl","lgb_list.joblib"]:
+        p = model_dir / name
+        obj = safe_joblib_or_pickle(p)
+        if obj:
+            return obj
+    return []
+
+def try_load_xgb(model_dir: Path):
+    for name in ["xgb_list.pkl","xgb.pkl","xgb_list.joblib"]:
+        p = model_dir / name
+        obj = safe_joblib_or_pickle(p)
+        if obj:
+            return obj
+    return []
+
+def try_load_ft(model_dir: Path, n_features: int) -> Optional[FTWrapped]:
     """
-    1. Directional-Change-Phase bestimmen
-    2. Trend-Scan = Mehrheit der DC-Phasen in gleitenden Fenstern w_list
+    Rekonstruiert FTWrapped  lädt state_dict aus ft.pt.
+    Versucht n_blocks aus ft_study.pkl zu lesen, sonst Default.
     """
-    if "price" not in df.columns:
-        raise KeyError("'price' Spalte fehlt für Trend-Labeling")
-    trend = pd.DataFrame(index=df.index)
-    trend["dc_phase"] = _directional_change(df["price"], dc_thres)
-    # Trend-Scan: Mehrheit >= tau Fenster müssen up ODER down sein
-    for w in w_list:
-        trend[f"scan{w}"] = trend["dc_phase"].rolling(w, min_periods=w) \
-            .apply(lambda arr: math.copysign(1, arr.sum())
-                   if abs(arr.sum()) >= tau else 0, raw=True)
-    # Endgültiger Trend = Durchschnitt der Fenster
-    scans = trend[[f"scan{w}" for w in w_list]]
-    trend["trend_side"] = scans.mean(axis=1).apply(
-        lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
-    return trend
+    ft_state_path = model_dir / "ft.pt"
+    if not ft_state_path.exists():
+        return None
+    # n_blocks bestimmen
+    n_blocks = 4
+    study = safe_joblib_or_pickle(model_dir / "ft_study.pkl")
+    if study and hasattr(study, "best_params"):
+        bp = study.best_params
+        if "n_blocks" in bp:
+            n_blocks = int(bp["n_blocks"])
+    # Backbone bauen
+    from rtdl import FTTransformer
+    from peft import LoraConfig, get_peft_model
+    base = FTTransformer.make_default(
+        n_num_features=n_features, cat_cardinalities=(), d_out=1, n_blocks=n_blocks
+    )
+    base = get_peft_model(base, LoraConfig(r=4, lora_alpha=16, lora_dropout=0.05,
+                                           target_modules=["ffn.linear_first"]))
+    model = FTWrapped(base, pos_weight=None, label_smooth_eps=0.0, focal_gamma=0.0)
+    sd = torch.load(ft_state_path, map_location="cpu")
+    model.load_state_dict(sd, strict=False)
+    model.eval()
+    return model
 
+def try_load_cnn(model_dir: Path, n_feat_guess: int) -> Optional[SimpleCNN]:
+    path = model_dir / "cnn.pt"
+    if not path.exists():
+        return None
+    state = torch.load(path, map_location="cpu")
+    # state kann ein reines state_dict sein
+    if isinstance(state, dict) and any(k.startswith("net.0.weight") for k in state.keys()):
+        w = state["net.0.weight"]  # [n_filters, n_feat, 3]
+        n_filters = w.shape[0]
+        n_feat = w.shape[1]
+        m = SimpleCNN(n_feat=int(n_feat), n_filters=int(n_filters))
+        m.load_state_dict(state)
+        m.eval()
+        return m
+    # falls komplett gespeichertes Modell (selten)
+    if isinstance(state, SimpleCNN):
+        state.eval()
+        return state
+    # Fallback
+    m = SimpleCNN(n_feat=n_feat_guess, n_filters=32)
+    try:
+        m.load_state_dict(state, strict=False)
+        m.eval()
+        return m
+    except Exception:
+        return None
 
-# ---------------  Feature-Engineering Wrapper (example)  -------------------
-
-def enrich_features(df: pd.DataFrame) -> pd.DataFrame:
+def try_load_meta(model_dir: Path, K: int, ctx_dim: int) -> Optional[torch.nn.Module]:
     """
-    Ruft utils.features.enrich auf.
-    Fügt vorab eine 'timestamp'-Spalte hinzu, wenn der Zeitstempel nur im Index steckt,
-    denn enrich() erwartet diese Spalte.
+    Baut MetaMoE gemäß meta_study.pkl (d_token/dropout); L ist flexibel.
+    Rückgabe None, wenn Meta nicht rekonstruierbar.
     """
-    # timestamp-Spalte sicherstellen
-    if "timestamp" not in df.columns:
-        # Timestamp als Spalte *hinzufügen*, aber Index unverändert lassen
-        df = df.copy()
-        df["timestamp"] = df.index
+    meta_path = model_dir / "meta.pt"
+    if not meta_path.exists() or MetaMoE is None:
+        return None
+    d_model = 96
+    dropout = 0.3
+    study = safe_joblib_or_pickle(model_dir / "meta_study.pkl")
+    if study and hasattr(study, "best_params"):
+        bp = study.best_params
+        d_model = int(bp.get("d_token", d_model))
+        dropout = float(bp.get("dropout", dropout))
+    # n_heads so wählen, dass d_model teilbar ist (8/4/2/1)
+    def pick_heads(d):
+        for h in (8,4,2,1):
+            if d % h == 0:
+                return h
+        return 1
+    n_heads = pick_heads(d_model)
+    meta = MetaMoE(K=K, L=32, ctx_dim=ctx_dim, d_model=d_model,
+                   n_heads=n_heads, n_layers=1, dropout=dropout)
+    try:
+        sd = torch.load(meta_path, map_location="cpu")
+        meta.load_state_dict(sd, strict=False)
+        meta.eval()
+        return meta
+    except Exception:
+        return None
 
-    from utils.features import enrich  # Projektfunktion
-    feat = enrich(df.copy())
+# --------------------------------------------------------------------
+# Inferenz pro Komponente
+# --------------------------------------------------------------------
+def sigmoid_np(x: np.ndarray) -> np.ndarray:
+    x = np.clip(x, -50, 50)
+    return 1.0 / (1.0 + np.exp(-x))
 
-    # Basis-OHLCV ggf. nachziehen
-    for col in ["open", "high", "low", "close", "volume"]:
-        if col in df.columns and col not in feat.columns:
-            feat[col] = df[col]
-    return feat
+def predict_components(
+    seq: np.ndarray,              # (N, L, F)
+    rf_list, lgb_list, xgb_list,
+    ft_model: Optional[FTWrapped],
+    cnn_model: Optional[SimpleCNN],
+    temperature_T: Optional[float] = None,
+) -> Dict[str, np.ndarray]:
+    """
+    Gibt Dict mit Komponentenvorhersagen (Wkeit für UP) pro Zeitindex zurück.
+    """
+    N, L, F = seq.shape
+    X_flat = seq.reshape(N, L*F)
 
+    out: Dict[str, np.ndarray] = {}
 
+    # RF
+    if rf_list:
+        preds = [m.predict_proba(X_flat)[:,1] for m in rf_list]
+        out["rf"] = np.mean(np.vstack(preds), axis=0)
+    # LGB
+    if lgb_list:
+        preds = [m.predict(X_flat) for m in lgb_list]
+        out["lgb"] = np.mean(np.vstack(preds), axis=0)
+    # XGB
+    if xgb_list:
+        dm = xgb.DMatrix(X_flat)
+        preds = [m.predict(dm) for m in xgb_list]
+        out["xgb"] = np.mean(np.vstack(preds), axis=0)
 
-# ---------------------------------------------------------------------------
-# ------------------------------  Haupt-Routine  ----------------------------
-# ---------------------------------------------------------------------------
-def evaluate_one_model(
+    # FT (logits -> optional Temperature-Scaling)
+    if ft_model is not None:
+        with torch.no_grad():
+            xb = torch.from_numpy(X_flat.astype(np.float32))
+            out_logits = ft_model(xb)
+            if isinstance(out_logits, dict):
+                out_logits = out_logits["logits"].squeeze()
+            logits = out_logits.cpu().numpy().ravel()
+        if temperature_T and temperature_T > 0:
+            logits = logits / float(temperature_T)
+        out["ft"] = sigmoid_np(logits)
+
+    # CNN: (N, L, F) -> (N, F, L)
+    if cnn_model is not None:
+        with torch.no_grad():
+            xb = torch.from_numpy(seq.astype(np.float32)).permute(0,2,1)
+            logits = cnn_model(xb).cpu().numpy().ravel()
+        out["cnn"] = sigmoid_np(logits)
+
+    return out
+
+# --------------------------------------------------------------------
+# Meta-Ensemble (falls vorhanden) / Equal-Weight-Avg
+# --------------------------------------------------------------------
+def build_meta_inputs_from_component_stream(
+    comp: Dict[str, np.ndarray],
+    regime_df: Optional[pd.DataFrame],
+    L: int = 32
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Baut History H:[N,L,K] und Kontext C:[N,ctx] (nur Regime-Features).
+    Rolling-Performance lassen wir (wie im Val-Pfad) weg.
+    """
+    keys = sorted(comp.keys())
+    K = len(keys)
+    N = len(next(iter(comp.values())))
+    P = np.stack([comp[k] for k in keys], axis=1)  # [N,K]
+
+    # History
+    H = np.zeros((N, L, K), dtype=np.float32)
+    for t in range(N):
+        # Fenster der letzten L Zeitpunkte bis inkl. t
+        s = max(0, t - L + 1)
+        e = t + 1
+        window = P[s:e]
+        H[t, -len(window):, :] = window
+
+    # Kontext (ATR, %B), falls gegeben
+    if regime_df is not None and not regime_df.empty:
+        reg = regime_df[["atr","bbp"]].to_numpy(dtype=np.float32)
+        reg = reg[-N:]  # Align auf Länge N
+        C = reg
+    else:
+        C = np.zeros((N, 2), dtype=np.float32)
+    return H, C
+
+def run_meta_or_average(
+    comp: Dict[str, np.ndarray],
+    meta: Optional[torch.nn.Module],
+    regime_df: Optional[pd.DataFrame],
+    L: int = 32
+) -> np.ndarray:
+    keys = sorted(comp.keys())
+    if not keys:
+        return np.array([])
+    # Equal-weight Avg als Default
+    eq_avg = np.mean(np.stack([comp[k] for k in keys], axis=1), axis=1)
+    if meta is None:
+        return eq_avg
+    # Meta bauen & vorwärts
+    H, C = build_meta_inputs_from_component_stream(comp, regime_df, L=L)
+    with torch.no_grad():
+        Ht = torch.from_numpy(H)
+        Ct = torch.from_numpy(C)
+        w, p_now = meta(Ht, Ct)        # [N,K], [N,K]
+        P_base = Ht[:, -1, :]          # echte Basis-Preds der letzten Zeile
+        alpha = 1.0                    # nur Basis (wie Val-Pfad)
+        P_mix = alpha * P_base  (1.0 - alpha) * p_now
+        p_hat = (w * P_mix).sum(dim=1).cpu().numpy().ravel()
+    # safety
+    p_hat = np.clip(np.nan_to_num(p_hat, nan=0.5), 1e-7, 1-1e-7)
+    return p_hat
+
+# --------------------------------------------------------------------
+# Metriken: DA/MDA, PT-Test, Kalibrierung, Trading
+# --------------------------------------------------------------------
+def da_mda_metrics(trend_side: np.ndarray,
+                   p_up: np.ndarray,
+                   mda_band: float = 0.05) -> Dict[str, float]:
+    """
+    trend_side ∈ {-1,0,1}, p_up ∈ [0,1].
+    """
+    trend_side = trend_side.astype(int)
+    p_up = p_up.astype(float)
+    pred_bin = (p_up >= 0.5).astype(int)
+    true_bin = (trend_side == 1).astype(int)
+
+    out = {}
+    out["da_all"] = float(accuracy_score(true_bin, pred_bin))
+
+    act_mask = trend_side != 0
+    if act_mask.any():
+        out["da_active"] = float(accuracy_score(true_bin[act_mask], pred_bin[act_mask]))
+    else:
+        out["da_active"] = float("nan")
+
+    # MDA: 3 Klassen via Band um 0.5
+    pred_dir = np.where(p_up > 0.5 + mda_band, 1,
+                 np.where(p_up < 0.5 - mda_band, -1, 0))
+    out["mda_3class"] = float((pred_dir == trend_side).mean())
+    return out
+
+def pesaran_timmermann_da_z(
+    trend_side: np.ndarray,
+    p_up: np.ndarray
+) -> Dict[str, float]:
+    """
+    DA-z-Test nach Anatolyev (2005, eq. 2.1-2.2): z = sqrt(T)*(A-B)/sqrt((1-mx^2)(1-my^2))
+    mit x=Vorzeichen(Prognose), y=Vorzeichen(Realität); nur aktive Phasen {-1,1}.
+    """
+    # Prognose-Sign: 1 wenn p>=0.5, sonst -1; neutrals ignorieren
+    y = trend_side.astype(int)
+    mask = y != 0
+    if mask.sum() < 5:
+        return {"pt_z": float("nan"), "pt_p": float("nan")}
+    y = y[mask]
+    x = np.where(p_up[mask] >= 0.5, 1, -1)
+
+    # Komponenten
+    T = len(y)
+    sx = x
+    sy = y
+    A = np.mean(sx * sy)
+    mx = np.mean(sx)
+    my = np.mean(sy)
+    B = mx * my
+    denom = math.sqrt(max(1e-12, (1 - mx**2) * (1 - my**2)))
+    z = math.sqrt(T) * (A - B) / denom
+    from math import erf, sqrt
+    # two-sided p = 2*(1 - Phi(|z|)), Phi(z)=0.5*(1+erf(z/sqrt(2)))
+    p = 2.0 * (1.0 - 0.5 * (1.0 + erf(abs(z) / sqrt(2))))
+    # numerisch sauber einklammern
+    p = max(0.0, min(1.0, p))
+    return {"pt_z": float(z), "pt_p": float(p)}
+
+def ece_score(y_true: np.ndarray, p_up: np.ndarray, n_bins: int = 10) -> Tuple[float, Dict]:
+    """
+    Expected Calibration Error (ECE) mit gleichbreiten Bins in [0,1].
+    """
+    y = y_true.astype(int)
+    p = p_up.astype(float)
+    bins = np.linspace(0, 1, n_bins + 1)
+    # Bin-Index [0..n_bins-1]
+    idx = np.digitize(p, bins, right=False) - 1
+    idx = np.clip(idx, 0, n_bins - 1)
+    ece = 0.0
+    bins_out = []
+    N = len(p)
+    for b in range(n_bins):
+        mask = idx == b
+        if not np.any(mask):
+            bins_out.append({"bin": b, "count": 0, "conf": np.nan, "acc": np.nan})
+            continue
+        conf = float(np.mean(p[mask]))
+        acc  = float(np.mean(y[mask]))
+        w = np.mean(mask)
+        ece += w * abs(acc - conf)
+        bins_out.append({"bin": b, "count": int(mask.sum()), "conf": conf, "acc": acc})
+    return float(ece), {"bins": bins_out}
+
+def trading_metrics(
+    prices: np.ndarray,            # Close/Price Serie (aligned mit p_up index  1 bar vor)
+    p_up: np.ndarray,
+    long_th: float = 0.6,
+    short_th: float = 0.4,
+    hold: int = 1
+) -> Dict[str, float]:
+    """
+    Einfache Schwellen-Strategie: long wenn p>=long_th, short wenn p<=short_th, sonst flat.
+    Haltedauer 'hold' Bars. Returns auf log-Returns (stabiler).
+    """
+    p = p_up
+    signal = np.where(p >= long_th, 1, np.where(p <= short_th, -1, 0)).astype(int)
+    # log-returns
+    pr = np.asarray(prices, dtype=float)
+    ret = np.diff(np.log(pr))
+    # align: signal_t wirkt auf ret_{t} (nächste Bar nach Signal-Entstehung)
+    sig = signal[:-hold] if hold == 1 else np.convolve(signal, np.ones(hold, dtype=int), "valid")
+    rets_used = ret[:len(sig)]
+    pnl = sig * rets_used
+
+    if len(pnl) == 0:
+        return {k: float("nan") for k in [
+            "win_rate","profit_factor","pl_ratio","expectancy","avg_win","avg_loss","trades"
+        ]}
+
+    wins = pnl[pnl > 0]
+    losses = pnl[pnl < 0]
+
+    win_rate = float((pnl > 0).mean())
+    sum_win = float(wins.sum()) if len(wins) else 0.0
+    sum_loss = float(np.abs(losses.sum())) if len(losses) else 0.0
+    profit_factor = float(sum_win / sum_loss) if sum_loss > 0 else float("inf")
+
+    avg_win = float(wins.mean()) if len(wins) else 0.0
+    avg_loss = float(np.abs(losses.mean())) if len(losses) else 0.0
+    loss_rate = 1.0 - win_rate
+    expectancy = float(win_rate * avg_win - loss_rate * avg_loss)
+
+    return {
+        "win_rate": win_rate,
+        "profit_factor": profit_factor,
+        "pl_ratio": (avg_win / avg_loss) if avg_loss > 0 else float("inf"),
+        "expectancy": expectancy,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
+        "trades": int((signal != 0).sum())
+    }
+
+# --------------------------------------------------------------------
+# Haupt-Evaluierung
+# --------------------------------------------------------------------
+def evaluate(
     model_dir: Path,
     test_file: Path,
-    seq_len: int,
-    bar_min: int,
     plots: bool = False,
-) -> Dict[str, Any]:
-    """
-    Führt Evaluation für ein Modellverzeichnis durch
-    und gibt ein Dict mit allen Metriken + Plot-Pfaden zurück.
-    """
+    mda_band: float = 0.05,
+    long_th: float = 0.6,
+    short_th: float = 0.4,
+    hold: int = 1
+) -> Dict:
+    cfg = load_yaml_cfg(model_dir)
+    seq_len = int(cfg.get("training", {}).get("seq_len", 24))
+    num_cols = cfg.get("data", {}).get("numerical_cols", ["open","high","low","Close","volume"])
 
-    # ---------------- Konfiguration ----------------
-    cfg_yaml = yaml.safe_load(open(model_dir / "config.yaml", encoding="utf-8"))
+    # Daten laden
+    df = read_test_data(test_file)
 
-    def J(json_name: str, yaml_path: List[str], default={}):
-        return json_or_yaml(model_dir / json_name, yaml_path, cfg_yaml) or default
+    # Trend-Seite & Label
+    side = make_trend_side_dc(df["price"],
+                              dc_thres=float(cfg.get("dc_thres", 0.5)),
+                              windows=tuple(cfg.get("w_list", [5,15,30])),
+                              tau=int(cfg.get("tau", 1)))
+    df["trend_side"] = side
+    df["label"] = (side == 1).astype(int)
 
-    # ---------------- Temperature-Scaler laden ----------------
+    # Regime-Features (optional)
+    regime_df = None
+    if bool(cfg.get("meta", {}).get("use_regime", True)):
+        # extract_regime_features erwartet Spalten: high/low/close
+        tmp = df.copy()
+        if "close" not in tmp.columns:
+            tmp["close"] = tmp["Close"] if "Close" in tmp.columns else tmp["price"]
+        regime_df = extract_regime_features(tmp).reindex(df.index)
+
+    # Feature-Matrix auf Trainingsspalten (falls vorhanden)
+    for c in num_cols:
+        if c not in df.columns:
+            df[c] = 0.0
+    feat = df[num_cols].dropna()
+    # Sequenzen bilden
+    X = feat.to_numpy(dtype=np.float32)
+    if len(X) <= seq_len:
+        raise ValueError("Zu wenig Daten für Sequenzen.")
+    seq = np.stack([X[i-seq_len:i] for i in range(seq_len, len(X))])        # (N,L,F)
+    # Targets und Trend auf gleiche Länge schneiden
+    y_true = df["label"].to_numpy(dtype=int)[seq_len:]
+    trend_side = df["trend_side"].to_numpy(dtype=int)[seq_len:]
+    # Preise für Trading-Metrik (align zu p_up)
+    price_aligned = df["price"].to_numpy(dtype=float)[seq_len-1:]  # damit ret_{t} zur p_{t} passt
+
+    # Komponenten laden
+    rf_list  = try_load_rf(model_dir)
+    lgb_list = try_load_lgb(model_dir)
+    xgb_list = try_load_xgb(model_dir)
+    ft_model = try_load_ft(model_dir, n_features=seq.shape[1]*seq.shape[2])
+    cnn_model= try_load_cnn(model_dir, n_feat_guess=seq.shape[2])
+
+    # Temperature (nur FT)
     T = 1.0
-    temp_path = model_dir / "temp_scaler.pt"
-    if temp_path.exists():
-        T = torch.load(temp_path)["temperature"]
-        print(f"🔸 Temperature Scaling aktiv (T={T:.3f})")
+    tfile = model_dir / "temp_scaler.pt"
+    if tfile.exists():
+        try:
+            T = float(torch.load(tfile, map_location="cpu").get("temperature", 1.0))
+        except Exception:
+            T = 1.0
 
-    # ------------- Modell-Komponenten laden ----------
-    from trainers.hybrid_longtrend_trainer import (
-        FTWrapped, SimpleCNN, MetaTransformer
-    )
+    comp = predict_components(seq, rf_list, lgb_list, xgb_list, ft_model, cnn_model, temperature_T=T)
 
-    # FT-Transformer
-    ft_cfg = adapt_ft_cfg(J("ft_cfg.json", ["model", "ft_params"]), FTWrapped)
-    ft_wrap = None
-    if ft_cfg:
-        ft_backbone = FTWrapped(**ft_cfg)
-        ft_backbone.load_state_dict(torch.load(model_dir / "ft.pt", map_location="cpu"))
-        ft_backbone.eval()
-        ft_wrap = FTWrapped(ft_backbone)
-        ft_wrap.load_state_dict(torch.load(model_dir / "ft_wrap.pt", map_location="cpu"))
-        ft_wrap.eval()
+    # Meta (nur wenn rekonstruierbar)
+    ctx_dim = 2 if regime_df is not None else 0
+    meta = try_load_meta(model_dir, K=len(comp), ctx_dim=ctx_dim) if len(comp) >= 1 else None
 
-    # CNN
-    cnn_cfg = filter_cfg(J("cnn_cfg.json", ["cnn"]), SimpleCNN)
-    cnn, n_cnn_feat = None, None
-    if cnn_cfg:
-        n_cnn_feat = cnn_cfg["n_feat"]
-        cnn = SimpleCNN(**cnn_cfg)
-        cnn.load_state_dict(torch.load(model_dir / "cnn.pt", map_location="cpu"))
-        cnn.eval()
-    elif (model_dir / "cnn.pt").exists():
-        state = torch.load(model_dir / "cnn.pt", map_location="cpu")
-        n_cnn_feat = state["net.0.weight"].shape[1]
-        cnn = SimpleCNN(n_feat=n_cnn_feat)
-        cnn.load_state_dict(state)
-        cnn.eval()
+    # Ensemble-Vorhersage
+    p_meta = run_meta_or_average(comp, meta, regime_df)
+    # Metrik-Sammelobjekt
+    metrics: Dict[str, float] = {}
 
-    # Klassische Modelle
-    rf_list = load_pickle(model_dir / "rf.pkl") or []
-    lgb_list = load_pickle(model_dir / "lgb.pkl") or []
-    xgb_list = load_pickle(model_dir / "xgb.pkl") or []
+    # ---------------- Metriken gesamt (Meta/Avg) ----------------
+    def full_metric_block(p_up: np.ndarray, tag: str) -> Dict:
+        out = {}
+        # klassisch  Kalibrierung
+        out[f"{tag}_accuracy"] = float(accuracy_score(y_true, (p_up>=0.5).astype(int)))
+        try: out[f"{tag}_roc_auc"] = float(roc_auc_score(y_true, p_up))
+        except Exception: out[f"{tag}_roc_auc"] = float("nan")
+        try: out[f"{tag}_brier"] = float(brier_score_loss(y_true, p_up))
+        except Exception: out[f"{tag}_brier"] = float("nan")
+        ece, bins = ece_score(y_true, p_up, n_bins=10)
+        out[f"{tag}_ece"] = float(ece)
 
-    # Meta-Transformer
-    meta_cfg = filter_cfg(J("meta_cfg.json", ["meta"]), MetaTransformer)
-    meta_model = None
-    if meta_cfg:
-        meta_model = MetaTransformer(**meta_cfg)
-        meta_model.load_state_dict(torch.load(model_dir / "meta.pt", map_location="cpu"))
-        meta_model.eval()
+        # DA/MDA  PT
+        out.update({f"{tag}_{k}": v for k,v in da_mda_metrics(trend_side, p_up, mda_band=mda_band).items()})
+        out.update({f"{tag}_{k}": v for k,v in pesaran_timmermann_da_z(trend_side, p_up).items()})
 
+        # Trading
+        out.update({f"{tag}_{k}": v for k,v in trading_metrics(price_aligned, p_up, long_th, short_th, hold).items()})
+        return out
 
-    # ---------------- Flag: Regime-Features? --------------------
-    use_regime = cfg_yaml.get("meta", {}).get("use_regime", False)
+    # ====== ENSEMBLE (Meta) ======
+    # Guard: nur auswerten, wenn Vorhersagen vorhanden und Längen passen
+    def _len_ok(p):
+        try:
+            return (p is not None) and (len(p) == len(y_true)) and (len(p) > 0)
+        except Exception:
+            return False
 
-    # ---------------- Daten-Iterator vorbereiten ----------------
-    data_iter = (
-        iter_ticks_as_bars(test_file, bar_min)
-        if "tick" in test_file.name.lower()
-        else [pd.read_csv(test_file, parse_dates=["timestamp"]).set_index("timestamp")]
-    )
-
-    # ---------------- Evaluation ----------------
-    seq_scaler = StandardScaler()
-    y_true_all, y_prob_all = [], []
-    comp_probs = {"ft": [], "cnn": [], "rf": [], "lgb": [], "xgb": []}
-
-    for df_raw in data_iter:
-        # ------- Spalten harmonisieren + Preis-NaNs füllen -------
-        df_raw.rename(columns={c: "Close" for c in df_raw.columns if c.lower() == "close"}, inplace=True)
-        if "price" not in df_raw.columns:
-            df_raw["price"] = df_raw["Close"]
-        df_raw["price"].replace(0, np.nan, inplace=True)
-        df_raw["price"].ffill(inplace=True)
-
-        # ---------------- Trend-Label ----------------
-        trend = make_trend_labels(
-            df_raw,
-            cfg_yaml.get("dc_thres", 0.5),
-            cfg_yaml.get("w_list", [5, 15, 30]),
-            cfg_yaml.get("tau", 1),
-        )
-        df_raw["label"] = (trend["trend_side"] == 1).astype(int)
+    if _len_ok(p_meta):
+        metrics.update(full_metric_block(p_meta, "ensemble"))
+    else:
+        print(f"⚠️  Skipping ensemble metrics: predictions len="
+              f"{0 if p_meta is None else len(p_meta)} vs labels len={len(y_true)}")
 
 
-        # ------------- Regime-Features (ATR, %B) -------------
-        if use_regime:
-            regime_df = extract_regime_features(df_raw)
-            regime_df = regime_df.loc[df_raw.index]         # align index
-
-        # ---------------- Features -------------------
-        df_feat = enrich_features(df_raw).dropna()
-
-        # ---- exakte Trainings-Spalten laden ----
-        feat_cols_file = model_dir / "feature_cols.json"
-        if feat_cols_file.exists():
-            feat_cols = json.load(open(feat_cols_file))
-            for col in feat_cols:
-                if col not in df_feat.columns:
-                    df_feat[col] = 0.0
-            df_feat = df_feat[feat_cols]
-
-        # ---------------- Sequenzen ------------------
-        # ---------------- Sequenzen ------------------
-        feat_arr = df_feat.to_numpy(dtype=np.float32)
-        lab_arr  = df_raw.loc[df_feat.index, "label"].to_numpy(np.float32)
-
-        # Keine Sequenzen möglich? -> nächste Datei
-        if len(feat_arr) <= seq_len:
-            continue
-
-        seqs   = [feat_arr[i - seq_len : i] for i in range(seq_len, len(feat_arr))]
-        labels = lab_arr[seq_len:]
-
-        if use_regime:
-            reg_arr = regime_df.to_numpy(dtype=np.float32)
-            reg_seqs = reg_arr[seq_len:]           # gleiche Länge wie labels
-
-        # Scaler auf exakt derselben Flatten-Form fitten, die wir später transformieren
-        seq_flat = np.reshape(seqs, (len(seqs), -1))
-        seq_scaler.partial_fit(seq_flat)
-
-        X_seq = torch.from_numpy(np.stack(seqs))                   # (N, seq_len, n_feat)
-        y_seq = torch.from_numpy(labels.astype(np.float32))
-
-        if use_regime:
-            loader = DataLoader(
-                TensorDataset(X_seq, y_seq,
-                              torch.from_numpy(reg_seqs)),
-                batch_size=512, shuffle=False)
+    # ---------------- Komponenten-Report ----------------
+    # ====== Basis-Modelle ======
+    for name, preds in comp.items():
+        if _len_ok(preds):
+            metrics.update(full_metric_block(preds, f"only_{name}"))
         else:
-            loader = DataLoader(TensorDataset(X_seq, y_seq),
-                                batch_size=512, shuffle=False)
+            print(f"⚠️  Skipping component '{name}': len={0 if preds is None else len(preds)}")
 
-        # ---------------- Inferenz-Loop ---------------
-        for xb, yb in loader:
-            preds_components = []
-    
+    # ---------------- Ablation: leave-one-out (Equal-Weight) ---
+        # ====== Ablationen (only-X / leave-one-out) ======
+    if len(comp) >= 2:
+        keys = sorted(comp.keys())
+        stack = np.stack([comp[k] for k in keys], axis=1)   # [N,K]
+        for i, k in enumerate(keys):
+            p_loo = np.mean(np.delete(stack, i, axis=1), axis=1)
+            metrics.update(full_metric_block(p_loo, f"loo_drop_{k}"))
 
+    # ---------------- Plots (optional) -------------------
+    out_dir = model_dir / "eval_out"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-            # Klassische Modelle
-            xb_flat = seq_scaler.transform(xb.numpy().reshape(len(xb), -1))
-            if rf_list:
-                p_rf = mean_preds([m.predict_proba(xb_flat)[:, 1] for m in rf_list])
-                comp_probs["rf"].append(p_rf); preds_components.append(p_rf)
-            if lgb_list:
-                p_lgb = mean_preds([m.predict(xb_flat) for m in lgb_list])
-                comp_probs["lgb"].append(p_lgb); preds_components.append(p_lgb)
-            if xgb_list:
-                p_xgb = mean_preds([m.predict_proba(xb_flat)[:, 1] for m in xgb_list])
-                comp_probs["xgb"].append(p_xgb); preds_components.append(p_xgb)
-
-            # FT-Transformer  (mit Temperature-Scaling)
-            if ft_wrap:
-                logits_ft = ft_wrap(xb)
-                if isinstance(logits_ft, dict):      # falls Wrapper Dict liefert
-                    logits_ft = logits_ft["logits"]
-                logits_ft = (logits_ft / T).detach().numpy().ravel()
-                p_ft = 1 / (1 + np.exp(-logits_ft))      # Sigmoid
-                comp_probs["ft"].append(p_ft); preds_components.append(p_ft)
-
-            # CNN  (nur erste n_cnn_feat Features)
-            if cnn:
-                cnn_logits = cnn(xb[:, :, :n_cnn_feat].permute(0, 2, 1))
-                cnn_logits = (cnn_logits / T).detach().numpy().ravel()
-                p_cnn = 1 / (1 + np.exp(-cnn_logits))
-                comp_probs["cnn"].append(p_cnn); preds_components.append(p_cnn)
-
-            # Meta-Ensemble oder Durchschnitt
-            if meta_model:
-                stacked = np.vstack(preds_components).T.astype(np.float32)
-                if use_regime:
-                    # Regime-Features für dieses Batch anhängen
-                    rb = loader.dataset.tensors[2]            # (N,2)
-                    rb_batch = rb[loader.dataset.tensors[1]   # Zugriff via idx
-                                          == yb].numpy()
-                    stacked = np.hstack([stacked, rb_batch])
-                p_meta = torch.sigmoid(
-                    meta_model(torch.from_numpy(stacked))
-                ).detach().numpy().ravel()
-            else:
-                p_meta = mean_preds(preds_components)
-
-            y_true_all.append(yb.numpy())
-            y_prob_all.append(p_meta)
-
-    # ---------------- Kennzahlen ----------------
-    y_true = np.concatenate(y_true_all)
-    y_prob = np.concatenate(y_prob_all)
-    y_pred = (y_prob >= 0.5).astype(int)
-
-    metrics = {
-        "accuracy": float(accuracy_score(y_true, y_pred)),
-        "roc_auc": float(roc_auc_score(y_true, y_prob)),
-    }
-    cm = confusion_matrix(y_true, y_pred)
-    cls = classification_report(y_true, y_pred, target_names=["no-trend", "up-trend"], output_dict=True)
-    metrics.update({
-        "precision": cls["up-trend"]["precision"],
-        "recall":    cls["up-trend"]["recall"],
-        "f1":        cls["up-trend"]["f1-score"],
-        "confusion_matrix": cm.tolist(),
-    })
-
-    # -------------- Plots (optional) --------------
-    fig_paths = {}
     if plots:
-        import matplotlib.pyplot as plt, seaborn as sns, os
-        out_dir = model_dir / "eval_figs"; out_dir.mkdir(exist_ok=True)
+        import matplotlib.pyplot as plt
+        from sklearn.calibration import CalibrationDisplay
 
-        plt.figure(figsize=(4, 3))
-        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
-                    xticklabels=["no", "up"], yticklabels=["no", "up"])
-        plt.title("Confusion Matrix"); plt.ylabel("True"); plt.xlabel("Pred")
-        cm_path = out_dir / "confusion_matrix.png"
-        plt.tight_layout(); plt.savefig(cm_path); plt.close()
-        fig_paths["confusion_matrix"] = str(cm_path)
+    # ── Reliability / Calibration (Ensemble) – nur wenn Predictions verfügbar
+    if plots:
+        from sklearn.calibration import CalibrationDisplay
+        if (p_meta is not None) and (len(p_meta) == len(y_true)) and (len(p_meta) > 0):
+            plt.figure()
+            CalibrationDisplay.from_predictions(y_true, p_meta, n_bins=10)
+            plt.title("Reliability Diagram – Ensemble")
+            plt.tight_layout()
+            plt.savefig(os.path.join(out_dir, "reliability_ensemble.png"), dpi=120)
+            plt.close()
+        else:
+            print(
+                f"⚠️  Skipping calibration plot: "
+                f"predictions len={(0 if p_meta is None else len(p_meta))} "
+                f"vs labels len={len(y_true)}"
+            )
 
-        from sklearn.metrics import RocCurveDisplay, precision_recall_curve, auc
-        RocCurveDisplay.from_predictions(y_true, y_prob)
-        plt.title(f"ROC (AUC={metrics['roc_auc']:.3f})")
-        roc_path = out_dir / "roc_curve.png"
-        plt.tight_layout(); plt.savefig(roc_path); plt.close()
-        fig_paths["roc_curve"] = str(roc_path)
+        # ROC optional – wenn AUC berechenbar
+        try:
+            from sklearn.metrics import RocCurveDisplay
+            fig = plt.figure(figsize=(4,4))
+            RocCurveDisplay.from_predictions(y_true, p_meta)
+            plt.title("ROC (Ensemble)")
+            plt.tight_layout()
+            plt.savefig(out_dir / "roc_ensemble.png")
+            plt.close(fig)
+        except Exception:
+            pass
 
-        prec, rec, _ = precision_recall_curve(y_true, y_prob)
-        pr_auc = auc(rec, prec)
-        plt.figure(); plt.plot(rec, prec); plt.xlabel("Recall"); plt.ylabel("Precision")
-        plt.title(f"PR-Curve (AUC={pr_auc:.3f})")
-        pr_path = out_dir / "pr_curve.png"
-        plt.tight_layout(); plt.savefig(pr_path); plt.close()
-        fig_paths["pr_curve"] = str(pr_path)
+    # JSON raus
+    with open(out_dir / "metrics.json", "w", encoding="utf-8") as f:
+        json.dump(metrics, f, indent=2)
 
-        metrics["pr_auc"] = pr_auc
-        metrics["figures"] = fig_paths
+    # Kurz-Print
+    print("\n=== Ensemble (Equal-Weight oder Meta) ===")
+    for k in ["ensemble_accuracy","ensemble_roc_auc","ensemble_brier","ensemble_ece",
+              "ensemble_da_all","ensemble_da_active","ensemble_mda_3class",
+              "ensemble_pt_z","ensemble_pt_p",
+              "ensemble_win_rate","ensemble_profit_factor","ensemble_pl_ratio","ensemble_expectancy"]:
+        if k in metrics:
+            print(f"{k:>24s}: {metrics[k]:.6f}")
 
-    return metrics
+    return {"metrics": metrics, "out_dir": str(out_dir)}
 
-# ---------------------------------------------------------------------------
-
+# --------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------
 def parse_args():
-    p = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=textwrap.dedent(__doc__)
-    )
-    p.add_argument("--model-dir", required=True, nargs="+",
-                   help="Pfad(e) zu trainierten Modell­verzeichnissen")
-    p.add_argument("--test-file", required=True,
-                   help="Testdatei (Ticks oder Kerzen-CSV/TXT)")
-    p.add_argument("--seq-len", type=int, default=24,
-                   help="Sequenz­länge für Zeitreihen­modelle")
-    p.add_argument("--bar-min", type=int, default=60,
-                   help="Resampling-Intervall in Minuten für Tick-Dateien")
-    p.add_argument("--plots", action="store_true",
-                   help="Speichert PNG-Plots in <model>/eval_figs")
+    p = argparse.ArgumentParser(description="Evaluate HybridLongTrend models (components  ensemble)")
+    p.add_argument("--model-dir", required=True, help="Pfad zum Modellverzeichnis")
+    p.add_argument("--test-file", required=True, help="CSV/TXT mit timestamp & price/Close ( optional OHLCV)")
+    p.add_argument("--plots", action="store_true", help="Speichere Reliability/ROC Plots")
+    p.add_argument("--mda-band", type=float, default=0.05, help="Bandbreite um 0.5 für MDA neutrale Klasse")
+    p.add_argument("--long-thresh", type=float, default=0.6, help="Long-Schwelle p_up")
+    p.add_argument("--short-thresh", type=float, default=0.4, help="Short-Schwelle p_up")
+    p.add_argument("--hold", type=int, default=1, help="Haltedauer (Bars) der einfachen Strategie")
     return p.parse_args()
-
 
 def main():
     args = parse_args()
-    results = {}
-    for md in args.model_dir:
-        md_path = Path(md)
-        if not md_path.exists():
-            print(f"[WARN] Model-Dir {md} existiert nicht – übersprungen.")
-            continue
-        print(f"\n⏳  Evaluating {md_path} ...")
-        res = evaluate_one_model(
-            md_path, Path(args.test_file),
-            seq_len=args.seq_len, bar_min=args.bar_min,
-            plots=args.plots
-        )
-        results[md] = res
-        # Kurze Übersicht
-        print(f"✔  {md}: acc={res['accuracy']:.3f}, "
-              f"AUC={res['roc_auc']:.3f}, F1={res['f1']:.3f}")
-
-    # Vergleichstabelle
-    if len(results) > 1:
-        print("\n===== Modellvergleich =====")
-        header = f"{'Model':35s} |  Acc   |  AUC   |  F1"
-        print(header); print("-"*len(header))
-        for k, v in results.items():
-            print(f"{k:35s} | {v['accuracy']:.4f} | "
-                  f"{v['roc_auc']:.4f} | {v['f1']:.4f}")
-
+    model_dir = Path(args.model_dir)
+    test_file = Path(args.test_file)
+    evaluate(
+        model_dir=model_dir,
+        test_file=test_file,
+        plots=args.plots,
+        mda_band=args.mda_band,
+        long_th=float(args.long_thresh),
+        short_th=float(args.short_thresh),
+        hold=int(args.hold),
+    )
 
 if __name__ == "__main__":
     main()
