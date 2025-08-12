@@ -1,0 +1,190 @@
+# HybridLongTrendTrainer – ausführlicher Leitfaden
+
+Dieser Leitfaden erklärt das **Was**, **Warum** und **Wie** des `HybridLongTrendTrainer`: ein CPU-freundliches, robustes Ensemble aus **RF**, **LightGBM**, **XGBoost**, **FT-Transformer** (mit LoRA) und einer **1-D-CNN**, das mit **Optuna** getunt, über **OOF-Stacking** zusammengeführt und optional per **Focal-Loss** sowie **Temperature-Scaling** kalibriert wird. Außerdem fließen **Regime-Features** (ATR, %B) in den Meta-Stack ein.
+
+---
+
+## Überblick (High-Level)
+
+* **Ziel:** Binäre Trend-Wahrscheinlichkeit (0/1) aus Sequenzen numerischer Zeitreihenmerkmale.
+* **Input-Form:** Sequenzdaten `X_seq` mit Shape `[N, L, F]` (Samples × Sequenzlänge × Features) sowie binäre Labels `y_seq` `[N]`.
+* **Basismodelle:**
+
+  * **RF / LGB / XGB** auf **flach** gebügelten Sequenzen (`[N, L*F]`).
+  * **FT-Transformer** (tabellarer Transformer, LoRA-feinjustiert) auf flatten Input.
+  * **Simple 1-D-CNN** direkt auf Sequenzen (`[N, F, L]`).
+* **Tuning & OOF:** Jedes Basismodell wird per **Optuna** getunt. Danach werden **Out-of-Fold (OOF)**-Prognosen (Train) sowie **Val-Prognosen** (Fix-Fold) erzeugt.
+* **Meta-Stacker:** Ein **kleiner Transformer (MetaMoE)** verarbeitet **Prädiktionshistorie** (letzte *L* Schritte je Modell) plus **Kontext** (rollierender LogLoss je Basismodell und optional Regime-Features).
+* **Kalibrierung:** **Temperature-Scaling** (LBFGS) für den FT-Transformer.
+* **Fallback:** Falls Meta-Training fehlschlägt, wird automatisch auf **LogisticRegression** zurückgefallen.
+
+---
+
+## Daten & Labels
+
+* Erwartet wird eine CSV mit **numerischen Spalten** (konfiguriert unter `data.numerical_cols`).
+* Für Regime-Features sollten **`high`**, **`low`** und **`Close`** vorhanden sein (Achtung auf Groß-/Kleinschreibung).
+* **Sequenzlänge** `L` via `training.seq_len` (z. B. 24).
+* **Fold‐Auswahl:** TimeSeriesSplit; der **Val-Fold** wird so gewählt, dass er **≥ 5 %** Positive enthält (stabilere Kalibrierung).
+
+> Tipp: Wenn Ihr Preprocessing Bars/Labels erzeugt, vereinheitlichen Sie Spaltennamen (`high/low/Close`) und sorgen Sie für lückenfreie Timestamps.
+
+---
+
+## Architektur im Detail
+
+### 1) Basismodelle
+
+* **RandomForest / LightGBM / XGBoost**
+
+  * Input: **Flattened** `[N, L*F]`.
+  * Optuna sucht u. a. Bäume, Tiefe, Blätter; bei XGB auch `eta`, Kolumnensampling und L2-Term.
+  * Es wird ein **kleines Ensemble** (z. B. 3 RFs) per Bootstrapping trainiert.
+  * Für OOF werden per TimeSeriesSplit Modelle innerhalb der Trainingsperiode gefittet und auf die jeweiligen Val-Folds angewendet.
+
+* **FT-Transformer (rtdl) + LoRA**
+
+  * Tabellarer Transformer mit **d\_out=1** (logits).
+  * **LoRA** reduziert die zu trainierenden Parameter → schneller & stabiler auf CPU/GPU.
+  * **Loss-Wrapper** unterstützt **Label-Smoothing** und optional **Focal-Loss**; **pos\_weight** adressiert Klassenimbalance.
+  * Für OOF werden kleine Re-Fits je Fold durchgeführt; Inferenz **batched** mit autocast (GPU).
+
+* **Simple 1-D-CNN**
+
+  * Sehr kompakt: Conv → ReLU → GAP → Dense(1).
+  * Trainiert schnell; rechnet direkt auf `[N, F, L]`.
+  * Produziert OOF-Prognosen via Mini-Re-Fits je Fold.
+
+### 2) Stacking-Matrizen & Defensive Preprocessing
+
+* **OOF-Matrix (Train):** `[N_train, K]`, **K** = Anzahl Basismodelle.
+* **VAL-Matrix (Val-Fold):** `[N_val, K]`.
+* Alle Prognosen werden **geclippt** und `NaN` defensiv zu 0.5 gesetzt (stabilisierter LogLoss, robustere Meta-Suche).
+
+### 3) Regime-Features & Kontext
+
+* **ATR-Proxy** (gemittelter True Range über Sequenz) und **Bollinger %B** der letzten 20 Bars.
+* Für den Meta-Stack werden zusätzlich **rollierende LogLoss-Serien** aus den **OOF-Scores** der Basismodelle berechnet.
+* Der Meta-Stack erhält damit:
+
+  * **Historie** der Basisscores über *L* Schritte (`[B, L, K]`),
+  * **Kontext** aus **Regime** + **rollierender Performanz** (`[B, C]`).
+
+### 4) Meta-Stacker (MetaMoE)
+
+* Kleiner **Transformer-Encoder** über die **Prädiktionssequenz** je Sample (letzter Schritt = „aktueller Zustand“).
+* Zweiköpfig:
+
+  * **Gewichtskopf** (Softmax über K Basismodelle) → **Mischgewichte** `w`.
+  * **Per-Modell-Prognosekopf** (Sigmoid) → **angepasste** Basisprognosen `p_now`.
+* **Basismix:** `p_mix = α * p_base + (1-α) * p_now` (mit `p_base` = letzte echte Basisscores).
+* **Endscore:** `p_hat = Σ_k w_k * p_mix_k`.
+* **Regularisierung:**
+
+  * **Entropiestrafe** (fördert gleichmäßigere Gewichte, verhindert Hard-Select).
+  * **TV-Penalty** (sanfte Glättung der Gewichte im Batch als Surrogat für Zeitglätte).
+* **Loss:** BCE auf leicht **label-gesmoothte** Ziele (z. B. ε=0.02).
+
+### 5) Temperature-Scaling (Kalibrierung)
+
+* Für den **FT-Transformer** wird auf dem **Val-Fold** eine **Temperatur** (LBFGS) gelernt.
+* Speichert `temp_scaler.pt` (nur die Temperatur); in der Inferenz werden FT-Logits durch `T` geteilt.
+
+---
+
+## Trainingsablauf (Step-by-Step)
+
+1. **load\_data():** Lade Sequenzen, wähle Val-Fold (≥ 5 % Positiv).
+2. **RF/LGB/XGB/CNN/FT**:
+
+   * Optuna-Suche → bester Satz Hyperparameter,
+   * **Final-Fit** (ggf. kleines Ensemble),
+   * **OOF-Preds** auf Train, **Val-Preds** auf Val.
+3. **Stacking-Matrizen erstellen, clippen, NaNs behandeln.**
+4. **Meta-Inputs bauen:** Historie (L Schritte), Regime, rollierende LogLoss.
+5. **Meta-Optuna:** Suche `d_model`, `dropout`, `lr`, Head-Zahl (passend zu `d_model`).
+6. **Meta-Finaltraining** (mit Entropie/TV). Fallback auf LogReg bei Fehlern.
+7. **Temperature-Scaling** des FT.
+8. **save\_model():** Speichert `ft.pt`, `cnn.pt`, `meta.pt` sowie RF/LGB/XGB als Pickles und `temp_scaler.pt`.
+
+---
+
+
+
+**Wichtig:** Wenn `use_regime: true`, müssen `high`, `low`, `Close` in `numerical_cols` vorhanden sein.
+
+---
+
+## Inferenz (Inference) – Vorgehen
+
+1. **Modelle laden:** RF/LGB/XGB-Pickles, `ft.pt`, `cnn.pt`, `meta.pt`, `temp_scaler.pt`.
+2. **Neue Daten zu Sequenzen formen:** `[N, L, F]`, flatten für tabellarische Modelle.
+3. **Basisscores berechnen:**
+
+   * RF/LGB/XGB: `predict_proba` bzw. `predict` (LGB).
+   * FT: Logits durch **Temperatur** teilen, dann **Sigmoid** → `p_ft`.
+   * CNN: Sequenzkanäle `[N, F, L]`, **Sigmoid** der Logits.
+4. **Stacking-Features bauen:**
+
+   * **Historie**: letzte *L* Schritte der Basisscores, rechtsbündig.
+   * **Kontext**: (a) rollierende LogLoss ist zur Laufzeit i. d. R. nicht vorhanden → nur (b) **Regime** (ATR/%B) für die aktuellen Sequenzen anhängen.
+5. **Meta-Vorhersage:** `w, p_now = MetaMoE(H, C)` → `p_mix` → `p_hat`.
+6. **Thresholding / Ranking:** je nach Use-Case (ROC-/PR-basierte Schwelle, Kosten-sensitiv).
+
+> Hinweis: Der Code speichert nur die **Temperatur** für FT. Eine **Gesamt-Kalibrierung** des Ensembles (z. B. Platt/Isotonic auf `p_hat`) kann zusätzlich sinnvoll sein.
+
+---
+
+## Robustheit & Reproduzierbarkeit
+
+* **Klassenimbalance:** `pos_weight` und optional **Focal-Loss** im FT-Wrapper.
+* **OOF-Stacking:** reduziert Leckage, liefert verlässlichere Metafeatures.
+* **Defensives Clipping & NaN-Handling:** schützt den LogLoss und die Meta-Suche.
+* **Fallback-Meta:** garantiert, dass ein lauffähiges Ensemble entsteht.
+* **Seeds:** Teilweise gesetzt (z. B. RF Bootstrapping), vollständige Reproduzierbarkeit erfordert zusätzliche Seeding-/Determinismus-Schritte je Lib.
+
+---
+
+## Monitoring & Debugging
+
+* **Optuna-Artefakte:** Pro Studie `.pkl` + `_trials.csv` im `model_dir` → Nachanalyse der Suchräume.
+* **Shapes prüfen:**
+
+  * RF/LGB/XGB: `[N, L*F]`
+  * CNN: `[N, F, L]`
+  * FT: `[N, L*F]`
+* **Regime-Warnung:** Fehlt `high/low/Close`, wird Regime still übersprungen (Hinweis in Logs).
+* **GPU-Headroom:** Bei CUDA wird ein Memory-Headroom gesetzt; ggf. Batch-Größen reduzieren.
+* **Val-Fold-Positivrate:** < 5 %? Anheben (mehr Historie) oder Labeling anpassen.
+
+---
+
+## Erweiterungen (Ideen)
+
+* **Weitere Basismodelle:** z. B. CatBoost, TabNet, lineare Modelle mit Group-Norm.
+* **Bessere Kalibrierung:** Platt/Isotonic auf **Ensemble-Score**.
+* **Regime-Bank:** Mehr Faktoren (Vola-Cluster, Marktbreite, Intraday-Uhrzeit-Embeddings).
+* **Kosten-sensitives Tuning:** Optuna-Ziel auf „Expected Utility“ statt LogLoss.
+* **Drift-Wächter:** Rolling-Backtests + PSI/KS-Monitoring; automatische Re-Fits.
+* **Meta-Regularisierung:** Monotonie-Nebenbedingungen (z. B. Gewichtsbeschränkung je Regime).
+
+---
+
+## Häufige Stolpersteine (und Lösungen)
+
+* **`ValueError: high/low/Close nicht gefunden`:** Spaltennamen in `numerical_cols` konsistent setzen (inkl. Groß-/Kleinschreibung).
+* **`shape mismatch` beim CNN:** Reihenfolge prüfen – CNN erwartet `[N, F, L]` (nicht `[N, L, F]`).
+* **XGBoost-Param `lambda_l2`:** Wird intern auf `lambda` gemappt – im Code schon berücksichtigt.
+* **Zu wenig Positivbeispiele im Val:** Fold-Heuristik anpassen oder Labeling/Zeitraum erweitern.
+* **NaN-Preds im Meta:** Basisscores clippen/ersetzen (im Code bereits aktiv).
+
+---
+
+## Kurzanleitung „Loslegen“
+
+1. **Daten vorbereiten:** CSV mit Sequenzen/Labels; sicherstellen, dass `numerical_cols` stimmt.
+2. **Config füllen:** (siehe YAML-Beispiel) – Setzen Sie `seq_len`, `n_trials`, `use_regime`, `alpha_base_mix` etc.
+3. **Training:** Trainer instanziieren → `load_data()` → `optimize(X, y)` → `save_model()`.
+4. **Inferenz:** Modelle laden, Basisscores berechnen, Meta-Features bauen, `MetaMoE` auswerten → `p_hat`.
+
+---
