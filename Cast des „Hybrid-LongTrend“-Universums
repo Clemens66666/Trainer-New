@@ -1,0 +1,93 @@
+# 🎬 Cast des „Hybrid-LongTrend“-Universums
+
+## 🌲 Ranger RandomForest (RF)
+
+**Rolle:** Der **Spürhund** im Wald.
+**Wie er denkt:** Baut viele Entscheidungsbäume auf **flach gedrückten Features** (alle Zeitpunkte hintereinander). Stimmt ab, was die Mehrheit sagt.
+**Stärken:** Robust gegen Ausreißer, liefert solide „Baseline-Weisheit“, selten völlig daneben.
+**Schwächen:** Kann Details verwaschen, wenn Interaktionen zu komplex werden; nicht super stark bei sehr hoher Dimensionalität.
+
+---
+
+## 💡 LightGBM „Light Guardian“
+
+**Rolle:** Der **Effizienz-Zauberer**.
+**Wie er denkt:** Gradient Boosting auf Bäumen; lernt sehr schnell nützliche Splits in den **flattened Features**.
+**Stärken:** Stark bei tabellarischen Daten, gut mit vielen Features, schnell.
+**Schwächen:** Liebt saubere Features; falsche Klassengewichte/Regularisierung → kann überfitten.
+
+---
+
+## 🥷 XGBoost „X-Boost Ninja“
+
+**Rolle:** Der **Tryhard-Taktiker**.
+**Wie er denkt:** Ebenfalls Gradient Boosting (wie LGB), aber mit eigenem Regularisierungs-Stil; extrem tunebar, arbeitet auf **flattened Features**.
+**Stärken:** Sehr stabil, häufig SOTA auf Tabulardaten.
+**Schwächen:** Tuning-lastig; bei zu aggressiven Parametern gern mal „zu schlau“ (=overfit).
+
+---
+
+## 🧠 FT-Archivarin (FTTransformer)
+
+**Rolle:** Die **Ordnungshüterin** für Features.
+**Wie sie denkt:** Transformer für Tabulardaten (hier: **flattened Sequenzen** → (T·F)). Erlernt Feature-Beziehungen & Gewichte.
+**Stärken:** Erfasst nichtlineare Zusammenhänge elegant; profitiert von viel Data.
+**Schwächen:** Kann bei wenig Daten oder falschem LR „ins Leere“ laufen; Mixed Precision manchmal zickig → wir haben Logging/AMP stabilisiert.
+
+---
+
+## 🌊 CNN „Wellenreiter“
+
+**Rolle:** Der **Pattern-Scout** im Zeitverlauf.
+**Wie er denkt:** Convolutions über **(Features × Zeit)**, also (F, T). Erkennt lokale Muster, Peaks, Rhythmik.
+**Stärken:** Starker Sinn für **Formen/Strukturen** im Verlauf (z. B. Momentum, kurze Pattern).
+**Schwächen:** Weit entfernte Abhängigkeiten sind schwerer; braucht die richtige Kernel/Filterzahl.
+
+---
+
+## 🎩 Meta-MoE „Der Dirigent“
+
+**Rolle:** **Casting-Director & Dirigent** in einem.
+**Wie er denkt:** Nimmt die **History** der Basis-Wahrscheinlichkeiten (H mit Länge L) + optionalen Kontext (C) und berechnet:
+
+* **w** = Gewichte (welcher Experte ist heute dran?),
+* **p\_now** = eigene Korrektur-Preds der Experten,
+* mischt dann **p\_base** (aktuelle Base-Probs aus H) mit **p\_now** via **α**:
+  `p_mix = α · p_base + (1−α) · p_now`
+  und am Ende: **Finale Prognose** `p_hat = Σ (w_k · p_mix_k)`.
+
+**Stärken:** Erkennt **wann** welcher Experte gut ist (Regime-Wechsel!), glättet Ausreißer, hebt die Stärken der Einzelnen.
+**Schwächen:** Braucht saubere OOF/Val-Signale; AMP-BCE war heikel → haben wir gefixt (BCE in FP32).
+
+---
+
+# 🧩 Team-Play (Ablauf)
+
+1. **Features** bauen (enrich) → Sequenz **(N, T, F)**.
+2. **Basishelden** bekommen ihre Ansichten:
+
+   * RF/LGB/XGB: **flattened** (N, T·F)
+   * FT: **flattened** (N, T·F)
+   * CNN: **(N, F, T)**
+     → Jeder gibt eine **Proba** zurück: $p_{rf}, p_{lgb}, p_{xgb}, p_{ft}, p_{cnn}$.
+3. **History-Fenster H** (L Schritte der Basis-Probas) + Kontext C (z. B. Regime-Features).
+4. **Meta-MoE (Dirigent)** berechnet **w** & **p\_now**, mixt mit **p\_base** und liefert **$p_{\text{meta}}$**.
+5. Optional **Temperatur** für FT-Solo; im Ensemble mischt Meta direkt.
+
+---
+
+# 🥊 Wann ist wer MVP?
+
+* **Ruhige Phasen / klare Splits:** LGB/XGB glänzen.
+* **Kurzfristige Muster/Anstiege:** CNN holt Punkte.
+* **Komplexe Feature-Interaktionen:** FT liefert Mehrwert.
+* **Gemischte/wechselnde Regimes:** Meta-MoE gewinnt, weil er **Goldrichtig auswählt**, **wen** er stärker gewichtet.
+
+---
+
+# 🧪 Metriken in deiner Welt (DA & MDA)
+
+* **DA**: Klassische Trefferquote bei Schwelle 0.5.
+* **MDA (mit Band)**: Ignoriert unsichere Fälle um 0.5 → zeigt, **wie gut** wir sind, **wenn** wir eine Meinung haben (Coverage sagt, wie oft).
+
+---
