@@ -1,0 +1,35 @@
+also wir haben jetzt folgendes (ml-env) PS C:\trainers> python predict.py --model-dir "C:\trainers\models\hybrid_longtrend_20250813_142301" --config "C:\trainers\config.yaml" --ea-tick-file "C:\trainers\data\RawTickData3.txt" --output "C:\trainers\out\ea_ticks_preds_ensemble.csv" --device auto --freq 60min --label-horizon-min 60 --mda-band 0.00 --ea-chunk-rows 500000 --nn-batch-size 8192 
+>> 
+[INFO] Resample: raw=500000, buf=0, used_time='Time', used_price='Tick_Bid', range=[2019-12-31 23:00:00 → 2020-01-13 14:00:00], bars=184, carry_rows=1570 (last_bucket_start=2020-01-13 15:00:00, freq=60min)
+[INFO] Windowing: hist=0, chunk_bars=184, total=184, seq_len=24, horizon_bars=1, emit_windows=160 (ends 23→182), features=10
+⚠️  FT: state_dict wurde mit strict=False geladen (PEFT/Keys weichen ab).
+[INFO] Emit: rows=160, time_range=[2020-01-02 22:00:00 → 2020-01-13 13:00:00], DA_chunk=0.4562, MDA_chunk(band=0.0)=0.4562, coverage=100.00%
+[INFO] Resample: raw=500000, buf=1570, used_time='Time', used_price='Tick_Bid', range=[2020-01-13 15:00:00 → 2020-01-23 21:00:00], bars=199, carry_rows=974 (last_bucket_start=2020-01-23 22:00:00, freq=60min)
+[INFO] Windowing: hist=24, chunk_bars=199, total=223, seq_len=24, horizon_bars=1, emit_windows=199 (ends 23→221), features=10
+[WARNING] Meta gab nur 0.5 zurück – falle auf Base-Avg pro Chunk zurück.
+[INFO] Emit: rows=199, time_range=[2020-01-13 14:00:00 → 2020-01-23 20:00:00], DA_chunk=1.0000, MDA_chunk(band=0.0)=1.0000, coverage=100.00%
+[INFO] Resample: raw=500000, buf=974, used_time='Time', used_price='Tick_Bid', range=[2020-01-23 22:00:00 → 2020-02-05 13:00:00], bars=208, carry_rows=2286 (last_bucket_start=2020-02-05 14:00:00, freq=60min)
+[INFO] Windowing: hist=24, chunk_bars=208, total=232, seq_len=24, horizon_bars=1, emit_windows=208 (ends 23→230), features=10
+[WARNING] Meta gab nur 0.5 zurück – falle auf Base-Avg pro Chunk zurück.
+[INFO] Emit: rows=208, time_range=[2020-01-23 21:00:00 → 2020-02-05 12:00:00], DA_chunk=1.0000, MDA_chunk(band=0.0)=1.0000, coverage=100.00%
+[INFO] Resample: raw=500000, buf=2286, used_time='Time', used_price='Tick_Bid', range=[2020-02-05 14:00:00 → 2020-02-18 06:00:00], bars=209, carry_rows=2326 (last_bucket_start=2020-02-18 07:00:00, freq=60min)
+[INFO] Windowing: hist=24, chunk_bars=209, total=233, seq_len=24, horizon_bars=1, emit_windows=209 (ends 23→231), features=10
+[WARNING] Meta gab nur 0.5 zurück – falle auf Base-Avg pro Chunk zurück.
+[INFO] Emit: rows=209, time_range=[2020-02-05 13:00:00 → 2020-02-18 05:00:00], DA_chunk=1.0000, MDA_chunk(band=0.0)=1.0000, coverage=100.00%     wenn wir allerdings band ändern haben wir sofort wieder 0% (ml-env) PS C:\trainers> python predict.py --model-dir "C:\trainers\models\hybrid_longtrend_20250813_142301" --config "C:\trainers\config.yaml" --ea-tick-file "C:\trainers\data\RawTickData3.txt" --output "C:\trainers\out\ea_ticks_preds_ensemble.csv" --device auto --freq 60min --label-horizon-min 60 --mda-band 0.0001 --ea-chunk-rows 500000 --nn-batch-size 8192
+>> 
+[INFO] Resample: raw=500000, buf=0, used_time='Time', used_price='Tick_Bid', range=[2019-12-31 23:00:00 → 2020-01-13 14:00:00], bars=184, carry_rows=1570 (last_bucket_start=2020-01-13 15:00:00, freq=60min)
+[INFO] Windowing: hist=0, chunk_bars=184, total=184, seq_len=24, horizon_bars=1, emit_windows=160 (ends 23→182), features=10
+⚠️  FT: state_dict wurde mit strict=False geladen (PEFT/Keys weichen ab).
+[INFO] Emit: rows=160, time_range=[2020-01-02 22:00:00 → 2020-01-13 13:00:00], DA_chunk=0.4562, MDA_chunk(band=0.0001)=0.4593, coverage=84.38%
+[INFO] Resample: raw=500000, buf=1570, used_time='Time', used_price='Tick_Bid', range=[2020-01-13 15:00:00 → 2020-01-23 21:00:00], bars=199, carry_rows=974 (last_bucket_start=2020-01-23 22:00:00, freq=60min)
+[INFO] Windowing: hist=24, chunk_bars=199, total=223, seq_len=24, horizon_bars=1, emit_windows=199 (ends 23→221), features=10
+[WARNING] Meta gab nur 0.5 zurück – falle auf Base-Avg pro Chunk zurück.
+[INFO] Emit: rows=199, time_range=[2020-01-13 14:00:00 → 2020-01-23 20:00:00], DA_chunk=1.0000, MDA_chunk(band=0.0001)=nan, coverage=0.00%
+[INFO] Resample: raw=500000, buf=974, used_time='Time', used_price='Tick_Bid', range=[2020-01-23 22:00:00 → 2020-02-05 13:00:00], bars=208, carry_rows=2286 (last_bucket_start=2020-02-05 14:00:00, freq=60min)
+[INFO] Windowing: hist=24, chunk_bars=208, total=232, seq_len=24, horizon_bars=1, emit_windows=208 (ends 23→230), features=10
+[WARNING] Meta gab nur 0.5 zurück – falle auf Base-Avg pro Chunk zurück.
+[INFO] Emit: rows=208, time_range=[2020-01-23 21:00:00 → 2020-02-05 12:00:00], DA_chunk=1.0000, MDA_chunk(band=0.0001)=nan, coverage=0.00%
+[INFO] Resample: raw=500000, buf=2286, used_time='Time', used_price='Tick_Bid', range=[2020-02-05 14:00:00 → 2020-02-18 06:00:00], bars=209, carry_rows=2326 (last_bucket_start=2020-02-18 07:00:00, freq=60min)
+[INFO] Windowing: hist=24, chunk_bars=209, total=233, seq_len=24, horizon_bars=1, emit_windows=209 (ends 23→231), features=10
+[WARNING] Meta gab nur 0.5 zurück – falle auf Base-Avg pro Chunk zurück.
+[INFO] Emit: rows=209, time_range=[2020-02-05 13:00:00 → 2020-02-18 05:00:00], DA_chunk=1.0000, MDA_chunk(band=0.0001)=nan, coverage=0.00%
