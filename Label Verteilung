@@ -1,0 +1,75 @@
+PS C:\trainers> & C:/trainers/ml-env/Scripts/python.exe c:/trainers/testscript.py
+Counts:
+ label
+0    17590
+1    15577
+Name: count, dtype: int64
+
+Proportionen:
+ label
+0    0.5303
+1    0.4697
+Name: count, dtype: float64
+
+Positivrate (falls binär 0/1): 0.46965357132089125
+Dtype: int64
+
+Split 1
+Counts: {0: 1667, 1: 2018}
+Positivrate: 0.5476255088195386
+
+Split 2
+Counts: {0: 1964, 1: 1721}
+Positivrate: 0.4670284938941655
+
+Split 3
+Counts: {0: 2261, 1: 1424}
+Positivrate: 0.3864314789687924
+
+Split 4
+Counts: {0: 1830, 1: 1855}
+Positivrate: 0.5033921302578019
+
+Split 5
+Counts: {0: 1754, 1: 1931}
+Positivrate: 0.5240162822252374
+
+Split 6
+Counts: {0: 2012, 1: 1673}
+Positivrate: 0.45400271370420625
+
+Split 7
+Counts: {0: 1507, 1: 2178}
+Positivrate: 0.591044776119403
+
+Split 8
+Counts: {0: 2830, 1: 855}
+Positivrate: 0.23202170963364993
+c:\trainers\testscript.py:24: FutureWarning: 'M' is deprecated and will be removed in a future version, please use 'ME' instead.
+  rate_m = df.set_index("timestamp")[target_col].resample("M").mean()
+timestamp
+2023-05-31    0.168478
+2023-06-30    0.577652
+2023-07-31    0.450397
+2023-08-31    0.306159
+2023-09-30    0.269841
+2023-10-31    0.570076
+2023-11-30    0.742424
+2023-12-31    0.589583
+2024-01-31    0.297348
+2024-02-29    0.623016
+2024-03-31    0.464286
+2024-04-30    0.570076
+2024-05-31    0.652174
+2024-06-30    0.468750
+2024-07-31    0.606884
+2024-08-31    0.689394
+2024-09-30    0.609127
+2024-10-31    0.204710
+2024-11-30    0.404762
+2024-12-31    0.398020
+2025-01-31    0.489603
+2025-02-28    0.000000
+2025-03-31    0.000000
+2025-04-30    0.000000
+Freq: ME, Name: label, dtype: float64
