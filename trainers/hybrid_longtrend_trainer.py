@@ -11,6 +11,7 @@ import os, gc, math, joblib, optuna, numpy as np, pandas as pd, torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.cuda.amp import autocast, GradScaler
 from sklearn.model_selection import TimeSeriesSplit, train_test_split
 from sklearn.metrics import log_loss
 from sklearn.ensemble import RandomForestClassifier
@@ -93,18 +94,25 @@ class TemperatureScaler(nn.Module):
         self.temperature = nn.Parameter(torch.ones(1))
     def forward(self, x): return self.model(x) / self.temperature
 
-@torch.no_grad()
 def calibrate_temperature(model, val_loader):
     device = next(model.parameters()).device
     scaler = TemperatureScaler(model).to(device)
     opt = torch.optim.LBFGS([scaler.temperature], lr=0.01, max_iter=50)
+    # Wir optimieren NUR die Temperatur, nicht das Modell:
+    for p in scaler.model.parameters():
+        p.requires_grad = False
+    bce = nn.BCEWithLogitsLoss(reduction="sum")
     def _loss():
         opt.zero_grad()
-        logits = torch.cat([scaler(x.to(device)) for x, _ in val_loader])
-        labels = torch.cat([y.to(device) for _, y in val_loader])
-        loss = nn.functional.binary_cross_entropy_with_logits(
-            logits.squeeze(), labels.float())
-        loss.backward(); return loss
+        total, n = 0.0, 0
+        for x, y in val_loader:
+            x = x.to(device); y = y.to(device).float()
+            logits = scaler(x).squeeze()
+            total += bce(logits, y)
+            n += y.numel()
+        loss = total / max(1, n)
+        loss.backward()
+        return loss
     opt.step(_loss)
     return scaler.temperature.item()
 # ---- neu: kleiner Wrapper für FT-Logits (für Temperature-Scaling)
@@ -154,6 +162,11 @@ def run_optuna_and_save(objective_fn, n_trials: int, study_name: str, save_dir: 
     joblib.dump(study, pkl)
     study.trials_dataframe().to_csv(save_dir / f"{study_name}_trials.csv", index=False)
     return study
+
+# ---- Kleine Hülle, damit BaseTrainer.run() immer ein "study.best_params" bekommt
+class _SimpleStudy:
+    def __init__(self, best_params: dict):
+        self.best_params = best_params
 
 class FTWrapped(nn.Module):
     """
@@ -253,22 +266,43 @@ class HybridLongTrendTrainer(BaseTrainer):
         def obj(t): return self._rf_objective(t, Xf, y)
         best = run_optuna_and_save(obj, self.cfg["optuna"]["n_trials"],
                                    "rf_study", self.model_dir).best_params
-        # Full-fit Ensemble (wie gehabt)
+        # Merke Best-Params, damit wir sie am Ende als study.best_params zurückgeben können
+        self.best_rf_params = dict(best)
+        # Full-fit Ensemble (konfigurierbar, default=2 statt 3 → schneller)
+        rf_n_models = int(self.cfg.get("rf", {}).get("n_full_models", 3))
+        rf_max_samples = self.cfg.get("rf", {}).get("max_samples", None)  # z.B. 0.7 für 70%
         models, rng = [], np.random.default_rng(42)
-        for _ in range(3):
+        for _ in range(rf_n_models):
             idx = rng.choice(len(Xf), len(Xf), replace=True)
-            m   = RandomForestClassifier(**best, n_jobs=self.cpu_threads)
+            m   = RandomForestClassifier(
+                    **best,
+                    n_jobs=self.cpu_threads,
+                    bootstrap=True,
+                    max_samples=rf_max_samples
+                )
+            # <— fehlte: trainieren und in Ensemble aufnehmen
             m.fit(Xf[idx], y[idx])
             models.append(m)
         # OOF (K=5)
         tss = TimeSeriesSplit(n_splits=5)
         oof = np.zeros(len(Xf), dtype=np.float32)
         for tr, va in tss.split(Xf):
-            m = RandomForestClassifier(**best)
+            # WICHTIG: n_jobs setzen, sonst 1 Thread → sehr langsam
+            m = RandomForestClassifier(
+                    **best,
+                    n_jobs=self.cpu_threads,
+                    bootstrap=True,
+                    max_samples=rf_max_samples
+                )
             m.fit(Xf[tr], y[tr])
             oof[va] = m.predict_proba(Xf[va])[:,1]
         # Val-Preds
         Xv = self._flat(self.X_val)
+        # Safety: falls models leer wäre (sollte jetzt nicht mehr passieren)
+        if len(models) == 0:
+            m_full = RandomForestClassifier(**best, n_jobs=self.cpu_threads)
+            m_full.fit(Xf, y)
+            models = [m_full]
         val_preds = np.mean([m.predict_proba(Xv)[:,1] for m in models], axis=0).astype(np.float32)
         return models, oof, val_preds
 
@@ -278,6 +312,7 @@ class HybridLongTrendTrainer(BaseTrainer):
             lambda t: self._lgb_objective(t, Xf, y),
             self.cfg["optuna"]["n_trials"], "lgb_study", self.model_dir
         ).best_params
+        self.best_lgb_params = dict(best)
         # Full-fit
         d   = lgb.Dataset(Xf, label=y)
         models = [lgb.train({**best,"objective":"binary","metric":"binary_logloss"}, d, 500)]
@@ -303,6 +338,7 @@ class HybridLongTrendTrainer(BaseTrainer):
         params = {**best, "objective":"binary:logistic", "eval_metric":"logloss"}
         if "lambda_l2" in params:  # Optuna-Name → XGB-Param
             params["lambda"] = params.pop("lambda_l2")
+        self.best_xgb_params = dict(best)
         # Full-fit
         d = xgb.DMatrix(Xf, label=y)
         model = xgb.train(params, d, 500)
@@ -323,6 +359,7 @@ class HybridLongTrendTrainer(BaseTrainer):
             lambda t: self._cnn_objective(t),  # nutzt self.X_train intern
             self.cfg["optuna"]["n_trials"], "cnn_study", self.model_dir
         ).best_params
+        self.best_cnn_params = dict(best)
         mdl = SimpleCNN(X.shape[2], best["n_filters"]).to(self.device)
         opt = optim.Adam(mdl.parameters(), lr=best["lr"])
         crit= nn.BCEWithLogitsLoss()
@@ -360,6 +397,7 @@ class HybridLongTrendTrainer(BaseTrainer):
             lambda t: self._ft_objective(t, Xf, y),
             self.cfg["optuna"]["n_trials"], "ft_study", self.model_dir)
         hp = study.best_params
+        self.best_ft_params = dict(hp)
         ft = FTTransformer.make_default(
             n_num_features=Xf.shape[1], cat_cardinalities=(), d_out=1,
             n_blocks=hp["n_blocks"])
@@ -473,8 +511,22 @@ class HybridLongTrendTrainer(BaseTrainer):
                        d_model=d_model, n_heads=n_heads, n_layers=n_layers,
                        dropout=dropout).to(self.device)
         opt  = torch.optim.Adam(meta.parameters(), lr=lr, weight_decay=5e-4)
-        ds   = TensorDataset(torch.tensor(H_tr), torch.tensor(C_tr), torch.tensor(y_tr))
-        dl   = DataLoader(ds, batch_size=128, shuffle=True, pin_memory=False)
+        use_amp = (self.device.type == "cuda")
+        scaler  = GradScaler(enabled=use_amp)
+        # Zero-Copy: vermeidet RAM-Verdopplung (Torch teilt Speicher mit NumPy)
+        H_t = torch.from_numpy(H_tr) if isinstance(H_tr, np.ndarray) else H_tr
+        C_t = torch.from_numpy(C_tr) if isinstance(C_tr, np.ndarray) else C_tr
+        y_t = torch.from_numpy(y_tr) if isinstance(y_tr, np.ndarray) else y_tr
+        ds = TensorDataset(H_t, C_t, y_t)
+        # Kleinere physische Batch, um Peak-Speicher zu reduzieren
+        dl = DataLoader(
+            ds,
+            batch_size=64,           # vorher 128
+            shuffle=True,
+            num_workers=0,           # keine Extra-Kopien durch Worker
+            pin_memory=False,
+            drop_last=True
+        )
 
         eps = 0.02
         ent_w = self.cfg["meta"].get("entropy_weight", 1e-3)
@@ -483,28 +535,44 @@ class HybridLongTrendTrainer(BaseTrainer):
         for _ in range(5):
             for H, C, yb in dl:
                 H = H.to(self.device); C = C.to(self.device); yb = yb.to(self.device)
-                w, p_now = meta(H, C)                    # [B,K], [B,K]
-                p_base = H[:, -1, :]                     # echte Basis-Preds
-                alpha  = self.cfg.get("meta", {}).get("alpha_base_mix", 1.0)
-                p_mix  = alpha * p_base + (1.0 - alpha) * p_now
-                p_hat  = (w * p_mix).sum(dim=1)
-                p_hat  = torch.nan_to_num(p_hat, nan=0.5).clamp(1e-6, 1-1e-6)
-                y_s    = torch.nan_to_num(yb*(1-eps) + 0.5*eps, nan=0.5).clamp(1e-6, 1-1e-6)
-                bce    = nn.functional.binary_cross_entropy(p_hat, y_s)
-                ent    = -(w * (w.clamp_min(1e-8)).log()).sum(dim=1).mean()
-                tv     = meta.tv_penalty().mean()
-                loss   = bce - ent_w*ent + tv_w*tv
-                opt.zero_grad(); loss.backward(); opt.step()
+                with autocast(enabled=use_amp):
+                    w, p_now = meta(H, C)                    # [B,K], [B,K]
+                    p_base = H[:, -1, :]                     # echte Basis-Preds
+                    alpha  = self.cfg.get("meta", {}).get("alpha_base_mix", 1.0)
+                    p_mix  = alpha * p_base + (1.0 - alpha) * p_now
+                    p_hat  = (w * p_mix).sum(dim=1)
+                    p_hat  = torch.nan_to_num(p_hat, nan=0.5).clamp(1e-6, 1-1e-6)
+                    y_s    = torch.nan_to_num(yb*(1-eps) + 0.5*eps, nan=0.5).clamp(1e-6, 1-1e-6)
+                    ent    = -(w * (w.clamp_min(1e-8)).log()).sum(dim=1).mean()
+                    tv     = meta.tv_penalty().mean()
+                # BCE auf Wahrscheinlichkeiten **außerhalb** von autocast, stabil in FP32
+                bce = nn.functional.binary_cross_entropy(p_hat.float(), y_s.float())
+                loss = bce - ent_w*ent + tv_w*tv
+                opt.zero_grad(set_to_none=True)
+                scaler.scale(loss).backward()
+                scaler.step(opt)
+                scaler.update()
+        # ===== gebatchte Validierung, um VRAM-Peaks zu vermeiden =====
         meta.eval()
         with torch.no_grad():
-            Ht = torch.tensor(H_va, dtype=torch.float32, device=self.device)
-            Ct = torch.tensor(C_va, dtype=torch.float32, device=self.device)
-            w, p_now = meta(Ht, Ct)
-            p_base   = Ht[:, -1, :]
-            alpha    = self.cfg.get("meta", {}).get("alpha_base_mix", 1.0)
-            p_mix    = alpha * p_base + (1.0 - alpha) * p_now
-            p_hat    = (w * p_mix).sum(dim=1).cpu().numpy()
-            p_hat    = np.clip(np.nan_to_num(p_hat, nan=0.5), 1e-7, 1-1e-7)
+            Hv = torch.from_numpy(H_va).to(torch.float32)
+            Cv = torch.from_numpy(C_va).to(torch.float32)
+            ds_va = TensorDataset(Hv, Cv)
+            dl_va = DataLoader(ds_va, batch_size=1024, shuffle=False)
+            preds = []
+            for H, C in dl_va:
+                H = H.to(self.device); C = C.to(self.device)
+                with autocast(enabled=use_amp):
+                    w, p_now = meta(H, C)
+                    p_base   = H[:, -1, :]
+                    alpha    = self.cfg.get("meta", {}).get("alpha_base_mix", 1.0)
+                    p_mix    = alpha * p_base + (1.0 - alpha) * p_now
+                    p_hat    = (w * p_mix).sum(dim=1)
+                preds.append(p_hat.float().cpu().numpy())
+            p_hat = np.clip(np.nan_to_num(np.concatenate(preds), nan=0.5), 1e-7, 1-1e-7)
+        # Aufräumen nach Trial
+        del Hv, Cv, ds_va, dl_va
+        if torch.cuda.is_available(): torch.cuda.empty_cache()
         return log_loss(y_va, p_hat)
 
     def _train_meta(self, preds_oof: np.ndarray, preds_val: np.ndarray):
@@ -513,34 +581,53 @@ class HybridLongTrendTrainer(BaseTrainer):
             lambda t: self._meta_objective_seq(t, H_tr, C_tr, y_tr, H_va, C_va, y_va),
             self.cfg["optuna"]["n_trials"], "meta_study", self.model_dir
         ).best_params
-
+        # Merken für Rückgabe
+        self.best_meta_params = dict(best)
         d_model = best["d_token"]; dropout = best["dropout"]; n_heads = self._pick_n_heads(d_model, max_heads=4)
         meta = MetaMoE(K=H_tr.shape[2], L=H_tr.shape[1], ctx_dim=C_tr.shape[1],
                        d_model=d_model, n_heads=n_heads, n_layers=1,
                        dropout=dropout).to(self.device)
         opt  = torch.optim.Adam(meta.parameters(), lr=best["lr"], weight_decay=5e-4)
-        ds   = TensorDataset(torch.tensor(H_tr), torch.tensor(C_tr), torch.tensor(y_tr))
-        dl   = DataLoader(ds, batch_size=128, shuffle=True)
+        # Zero-Copy + kleinere physische Batch
+        H_t = torch.from_numpy(H_tr) if isinstance(H_tr, np.ndarray) else H_tr
+        C_t = torch.from_numpy(C_tr) if isinstance(C_tr, np.ndarray) else C_tr
+        y_t = torch.from_numpy(y_tr) if isinstance(y_tr, np.ndarray) else y_tr
+        ds = TensorDataset(H_t, C_t, y_t)
+        dl = DataLoader(
+            ds,
+            batch_size=64,       # vorher 128
+            shuffle=True,
+            num_workers=0,
+            pin_memory=False,
+            drop_last=True
+        )
         eps  = 0.02
         ent_w = self.cfg["meta"].get("entropy_weight", 1e-3)
         tv_w  = self.cfg["meta"].get("tv_weight", 1e-3)
+        use_amp = (self.device.type == "cuda")
+        scaler  = GradScaler(enabled=use_amp)
         meta.train()
         for _ in range(10):
             for H, C, yb in dl:
                 H = H.to(self.device); C = C.to(self.device); yb = yb.to(self.device)
-                w, p_now = meta(H, C)
-                p_base = H[:, -1, :]
-                alpha  = self.cfg.get("meta", {}).get("alpha_base_mix", 1.0)
-                p_mix  = alpha * p_base + (1.0 - alpha) * p_now
-                p_hat  = (w * p_mix).sum(dim=1)
-                p_hat  = torch.nan_to_num(p_hat, nan=0.5).clamp(1e-6, 1-1e-6)
-                y_s    = torch.nan_to_num(yb*(1-eps) + 0.5*eps, nan=0.5).clamp(1e-6, 1-1e-6)
-                bce    = nn.functional.binary_cross_entropy(p_hat, y_s)
-                ent    = -(w * (w.clamp_min(1e-8)).log()).sum(dim=1).mean()
-                tv     = meta.tv_penalty().mean()
-                loss   = bce - ent_w*ent + tv_w*tv
-                opt.zero_grad(); loss.backward(); opt.step()
-        return meta.cpu()
+                with autocast(enabled=use_amp):
+                    w, p_now = meta(H, C)
+                    p_base = H[:, -1, :]
+                    alpha  = self.cfg.get("meta", {}).get("alpha_base_mix", 1.0)
+                    p_mix  = alpha * p_base + (1.0 - alpha) * p_now
+                    p_hat  = (w * p_mix).sum(dim=1)
+                    p_hat  = torch.nan_to_num(p_hat, nan=0.5).clamp(1e-6, 1-1e-6)
+                    y_s    = torch.nan_to_num(yb*(1-eps) + 0.5*eps, nan=0.5).clamp(1e-6, 1-1e-6)
+                    ent    = -(w * (w.clamp_min(1e-8)).log()).sum(dim=1).mean()
+                    tv     = meta.tv_penalty().mean()
+                # BCE auf Wahrscheinlichkeiten **außerhalb** von autocast, stabil in FP32
+                bce = nn.functional.binary_cross_entropy(p_hat.float(), y_s.float())
+                loss = bce - ent_w*ent + tv_w*tv
+                opt.zero_grad(set_to_none=True)
+                scaler.scale(loss).backward()
+                scaler.step(opt)
+                scaler.update()
+        return meta.cpu(), self.best_meta_params
 
     # ----------------------------------------------------------- optimize
     def optimize(self, X, y):
@@ -576,7 +663,8 @@ class HybridLongTrendTrainer(BaseTrainer):
 
         # Meta-Stack trainieren (OOF + VAL → sequenzieller Meta-Encoder)
         try:
-            self.meta = self._train_meta(preds_oof, preds_val)
+            # _train_meta liefert (meta_model, best_meta_params)
+            self.meta, self.best_meta_params = self._train_meta(preds_oof, preds_val)
         except Exception as e:
             print(f"⚠️  Meta-Training fehlgeschlagen: {e}. Fallback auf einfache LogReg.")
             # Fallback, damit das Ensemble *immer* fertig gebaut wird:
@@ -594,16 +682,29 @@ class HybridLongTrendTrainer(BaseTrainer):
                         p = torch.tensor(self.sk.predict_proba(x.cpu().numpy())[:,1])
                     return p
             self.meta = _MetaFallback(lr).cpu()
+            # Markiere Fallback-Params, damit base.run() nicht crasht
+            self.best_meta_params = {"type": "logreg_fallback"}
 
         # Temperature-Scaling (FT)
         X_val_flat = self._flat(self.X_val)
         val_loader = DataLoader(
             TensorDataset(torch.tensor(X_val_flat, dtype=torch.float32),
                           torch.tensor(self.y_val,   dtype=torch.float32)),
-            batch_size=512, shuffle=False
+            batch_size=328, shuffle=False
         )
         T = calibrate_temperature(_FTLogits(self.ft), val_loader)
         torch.save({"temperature": T}, self.model_dir / "temp_scaler.pt")
+
+        # ---- Gib eine Study-ähnliche Struktur zurück, damit BaseTrainer.run() nicht auf None läuft
+        combined_best = {
+            "rf":  getattr(self, "best_rf_params",  {}),
+            "lgb": getattr(self, "best_lgb_params", {}),
+            "xgb": getattr(self, "best_xgb_params", {}),
+            "cnn": getattr(self, "best_cnn_params", {}),
+            "ft":  getattr(self, "best_ft_params",  {}),
+            "meta":getattr(self, "best_meta_params",{}),
+        }
+        return _SimpleStudy(combined_best)
 
     # ------------------------------------------------------------- save
     def save_model(self, *_):
@@ -777,6 +878,7 @@ class HybridLongTrendTrainer(BaseTrainer):
         import torch
         from torch.utils.data import DataLoader, TensorDataset
         from transformers import Trainer, TrainingArguments
+        import gc
 
         # 1) Hyperparameter-Vorschläge
         hp = {
@@ -852,7 +954,10 @@ class HybridLongTrendTrainer(BaseTrainer):
 
         # 6) Eval-Loss des besten Checkpoints ermitteln
         eval_res = trainer.evaluate(ds_va)
-        val_loss = float(eval_res["eval_loss"])
+        val_loss = float(eval_res.get("eval_loss", float("inf")))
+        # Safety: nie 0/NaN/Inf als "guten" Wert zurückgeben
+        if (not np.isfinite(val_loss)) or (val_loss <= 0.0):
+            val_loss = float("inf")
 
         # Aufräumen (RAM & GPU-Cache)
         del trainer, model, peft_ft, base_ft, ds_tr, ds_va
