@@ -70,7 +70,22 @@ loss:
 
 # ───────────────────────── Optuna-Steuerung ────────────────────────
 optuna:
-  n_trials: 20
++optuna:
+  # Globaler Fallback, wenn unten für ein Modell nichts angegeben ist
+  n_trials: 1
+  # Pro-Modell individuell überschreibbar:
+  rf:
+    n_trials: 1
+  lgb:
+    n_trials: 1
+  xgb:
+    n_trials: 1
+  cnn:
+    n_trials: 1
+  ft:
+    n_trials: 1
+  meta:
+    n_trials: 1
   direction: minimize            # Log-Loss ↓
   sampler: tpe
   pruner: median                 # Median-Pruner
@@ -88,7 +103,8 @@ meta:
   d_ff: 256
   dropout: 0.10
   num_train_epochs: 30
-
+  alpha_base_mix: 1.0  # 1.0 = nur Basis-Preds, <1.0 = Mischung mit Meta-Kopf
+  
 # ───────────────────────── Ausgabe-Pfad / Tag ──────────────────────
 output_root: models/
 exp_name: hybrid_longtrend
