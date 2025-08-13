@@ -205,7 +205,26 @@ class FTWrapped(nn.Module):
 # HybridLongTrendTrainer
 # ========================================================================== #
 class HybridLongTrendTrainer(BaseTrainer):
-
+    # ------------------------------------------------------------ Optuna: per-model trial helper
+    def _optuna_trials(self, key: str) -> int:
+        """
+        Liefert die Trial-Anzahl für ein Teilmodell 'key' (rf/lgb/xgb/cnn/ft/meta).
+        Reihenfolge:
+          1) cfg['optuna'][key]['n_trials'] falls vorhanden
+          2) cfg['optuna']['n_trials'] (globaler Fallback)
+          3) Default = 20
+        """
+        try:
+            opt = self.cfg.get("optuna", {})
+            # spezifische Einstellung?
+            if isinstance(opt.get(key), dict) and "n_trials" in opt[key]:
+                return int(opt[key]["n_trials"])
+            # globaler Fallback
+            if "n_trials" in opt:
+                return int(opt["n_trials"])
+        except Exception:
+            pass
+        return 20
     # ------------------------------------------------------------------ init
     def __init__(self, cfg_path: str):
         super().__init__(cfg_path)
@@ -264,7 +283,7 @@ class HybridLongTrendTrainer(BaseTrainer):
     def _train_rf(self, X, y):
         Xf = self._flat(X)
         def obj(t): return self._rf_objective(t, Xf, y)
-        best = run_optuna_and_save(obj, self.cfg["optuna"]["n_trials"],
+        best = run_optuna_and_save(obj, self._optuna_trials("rf"),
                                    "rf_study", self.model_dir).best_params
         # Merke Best-Params, damit wir sie am Ende als study.best_params zurückgeben können
         self.best_rf_params = dict(best)
@@ -310,7 +329,7 @@ class HybridLongTrendTrainer(BaseTrainer):
         Xf = self._flat(X)
         best = run_optuna_and_save(
             lambda t: self._lgb_objective(t, Xf, y),
-            self.cfg["optuna"]["n_trials"], "lgb_study", self.model_dir
+            self._optuna_trials("lgb"), "lgb_study", self.model_dir
         ).best_params
         self.best_lgb_params = dict(best)
         # Full-fit
@@ -333,7 +352,7 @@ class HybridLongTrendTrainer(BaseTrainer):
         Xf = self._flat(X)
         best = run_optuna_and_save(
             lambda t: self._xgb_objective(t, Xf, y),
-            self.cfg["optuna"]["n_trials"], "xgb_study", self.model_dir
+            self._optuna_trials("xgb"), "xgb_study", self.model_dir
         ).best_params
         params = {**best, "objective":"binary:logistic", "eval_metric":"logloss"}
         if "lambda_l2" in params:  # Optuna-Name → XGB-Param
@@ -357,7 +376,7 @@ class HybridLongTrendTrainer(BaseTrainer):
     def _train_cnn(self, X, y):
         best = run_optuna_and_save(
             lambda t: self._cnn_objective(t),  # nutzt self.X_train intern
-            self.cfg["optuna"]["n_trials"], "cnn_study", self.model_dir
+            self._optuna_trials("cnn"), "cnn_study", self.model_dir
         ).best_params
         self.best_cnn_params = dict(best)
         mdl = SimpleCNN(X.shape[2], best["n_filters"]).to(self.device)
@@ -395,7 +414,7 @@ class HybridLongTrendTrainer(BaseTrainer):
         Xf = self._flat(X)
         study = run_optuna_and_save(
             lambda t: self._ft_objective(t, Xf, y),
-            self.cfg["optuna"]["n_trials"], "ft_study", self.model_dir)
+            self._optuna_trials("ft"), "ft_study", self.model_dir)
         hp = study.best_params
         self.best_ft_params = dict(hp)
         ft = FTTransformer.make_default(
@@ -579,7 +598,7 @@ class HybridLongTrendTrainer(BaseTrainer):
         (H_tr, C_tr, y_tr), (H_va, C_va, y_va) = self._build_meta_inputs(preds_oof, preds_val)
         best = run_optuna_and_save(
             lambda t: self._meta_objective_seq(t, H_tr, C_tr, y_tr, H_va, C_va, y_va),
-            self.cfg["optuna"]["n_trials"], "meta_study", self.model_dir
+            self._optuna_trials("meta"), "meta_study", self.model_dir
         ).best_params
         # Merken für Rückgabe
         self.best_meta_params = dict(best)
