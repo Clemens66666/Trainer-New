@@ -14,13 +14,18 @@ def numeric_collate(batch):
     x_list = [torch.as_tensor(b["x_num"]) for b in batch]  # (L, F)
     x_pad  = pad_sequence(x_list, batch_first=True)        # (B, L_max, F)
 
-    y = torch.as_tensor(
-            [b.get("labels", b["label"]) for b in batch],
-            dtype=torch.float32
-        )
+    # Labels robust auslesen (kein dict.get mit Default, da der Default
+    # bereits ausgewertet wird und sonst KeyError auslöst)
+    labels = []
+    for b in batch:
+        if "labels" in b:
+            labels.append(b["labels"])
+        elif "label" in b:
+            labels.append(b["label"])
+        else:
+            raise KeyError("Sample ohne 'labels' oder 'label'")
+    y = torch.as_tensor(labels, dtype=torch.float32)
     return {"x_num": x_pad.float(), "labels": y}
-
-
 # ───────────────────────── Stack‑Pred‑Meta ─────────────────────────────
 def meta_collate(batch):
     """

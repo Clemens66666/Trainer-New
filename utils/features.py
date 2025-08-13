@@ -55,6 +55,21 @@ def _bollinger_pct_b(series: pd.Series, window: int = 20, k: float = 2.0
     pct_b = (series - lower) / (upper - lower)
     return pct_b
 
+# Spaltenhelfer: Case-insensitiv passende Original-Spaltennamen finden
+def _pick_col(df: pd.DataFrame, *candidates: str) -> str:
+    """
+    Liefert den im DataFrame vorhandenen Spaltennamen (Original-Schreibweise),
+    der einem der Kandidaten entspricht (case-insensitiv).
+    """
+    lut = {c.lower(): c for c in df.columns}
+    for cand in candidates:
+        key = cand.lower()
+        if key in lut:
+            return lut[key]
+    raise KeyError(
+        f"Benötigte Spalte fehlt. Gesucht: {candidates}, vorhanden: {list(df.columns)}"
+    )
+
 
 # ──────────────────────────────────────────────────────────────────────
 #  Haupt‑Funktion
@@ -71,32 +86,43 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
         • Sin/Cos‑Zeit‑Kodierung (Stunde, Wochentag)
     Gibt eine **neue** DataFrame‑Kopie zurück.
     """
+
     df = df.copy()
 
+    # Benötigte Spalten (robust gegen Groß/Kleinschreibung + alternative Namen)
+    close_col = _pick_col(df, "Close", "close")
+    high_col  = _pick_col(df, "High", "high")
+    low_col   = _pick_col(df, "Low", "low")
+    time_col  = _pick_col(df, "timestamp", "Timestamp", "Time", "time", "Datetime", "datetime", "Date", "date")
     # ⇒ Gängige technische Indikatoren ‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
-    df["sma_10"]   = _sma(df["Close"], 10)
-    df["ema_20"]   = _ema(df["Close"], 20)
-    df["rsi_14"]   = _rsi(df["Close"], 14)
-    df["atr_14"]   = _atr(df["high"], df["low"], df["Close"], 14)
-    df["bb_pct_b"] = _bollinger_pct_b(df["Close"], 20, 2.0)
+    df["sma_10"]   = _sma(df[close_col], 10)
+    df["ema_20"]   = _ema(df[close_col], 20)
+    df["rsi_14"]   = _rsi(df[close_col], 14)
+    df["atr_14"]   = _atr(df[high_col], df[low_col], df[close_col], 14)
+    df["bb_pct_b"] = _bollinger_pct_b(df[close_col], 20, 2.0)
 
-    # ⇒ Momentum‑Lags (1‑3 Kerzen) ‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+    lag_cols = []
     for lag in (1, 2, 3):
-        df[f"mom_{lag}"] = df["Close"].pct_change(lag)
+        col_name = f"mom_{lag}"
+        # Kein implizites Auffüllen (FutureWarning in pandas 3.0 vermeiden)
+        df[col_name] = df[close_col].pct_change(lag, fill_method=None)
+        lag_cols.append(col_name)
+    # Fehlende Werte der Momentum-Spalten sauber auffüllen (ohne chained assignment)
+    if lag_cols:
+        df[lag_cols] = df[lag_cols].ffill().bfill()
 
-    # ⇒ Zeitfeat.: Stunde & Wochentag als Sin/Cos ‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
-    if not np.issubdtype(df["timestamp"].dtype, np.datetime64):
-        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    # Zeitspalte sicher in datetime konvertieren (ohne inplace)
+    if not np.issubdtype(df[time_col].dtype, np.datetime64):
+        df[time_col] = pd.to_datetime(df[time_col], utc=True, errors="coerce")
 
-    hours      = df["timestamp"].dt.hour
-    weekdays   = df["timestamp"].dt.weekday
+    hours      = df[time_col].dt.hour
+    weekdays   = df[time_col].dt.weekday
     df["hour_sin"]   = np.sin(2 * np.pi * hours / 24)
     df["hour_cos"]   = np.cos(2 * np.pi * hours / 24)
     df["weekday_sin"] = np.sin(2 * np.pi * weekdays / 7)
     df["weekday_cos"] = np.cos(2 * np.pi * weekdays / 7)
 
-    # N/A‑Werte erst ganz am Ende (lassen Modell entscheiden → maskieren oder 0)
-    df.fillna(method="bfill", inplace=True)
-    df.fillna(method="ffill", inplace=True)
+    # Hinweis: Keine weiteren inplace-Operationen → verhindert FutureWarnings/SettingWithCopy
+
 
     return df
