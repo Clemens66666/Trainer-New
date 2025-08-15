@@ -1,0 +1,36 @@
+{
+  "rf": {
+    "n_estimators": 396,
+    "max_depth": 10,
+    "min_samples_split": 5,
+    "max_features": null
+  },
+  "lgb": {
+    "learning_rate": 0.01907152337399935,
+    "num_leaves": 51,
+    "feature_fraction": 0.8729280824167166,
+    "bagging_fraction": 0.585058277089313,
+    "num_boost_round": 235
+  },
+  "xgb": {
+    "eta": 0.012494497756948128,
+    "max_depth": 6,
+    "subsample": 0.947994053998702,
+    "colsample_bytree": 0.8848287767329713,
+    "lambda_l2": 0.0033560869836746447
+  },
+  "cnn": {
+    "lr": 0.0005737020601229851,
+    "n_filters": 63,
+    "epochs": 19
+  },
+  "ft": {
+    "lr": 1.0403370787992102e-06,
+    "n_blocks": 3
+  },
+  "meta": {
+    "d_token": 107,
+    "dropout": 0.1854106365392241,
+    "lr": 0.00018491687007413321
+  }
+}
