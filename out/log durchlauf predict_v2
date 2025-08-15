@@ -1,0 +1,902 @@
+17:26:06 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:06 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:06 | INFO    | predict_v2 | [Chunk#100] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:06 | INFO    | predict_v2 | [Write] +91 rows → out\RawTickDataOOS_preds.csv (total written: 15,542)
+17:26:06 | INFO    | predict_v2 | --- Chunk #101 -----------------------------------------------
+17:26:06 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,682, used_time='Time', used_price='Tick_Bid', range=[2022-06-29 16:00:00 → 2022-07-05 07:00:00], bars=88, carry_rows=389 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.093s
+17:26:06 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=112, total=112, seq_len=24, horizon_bars=1
+17:26:06 | INFO    | predict_v2 | [Emit] ends 23→110 → rows=88
+17:26:06 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:06 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:06 | INFO    | predict_v2 | [Chunk#101] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:06 | INFO    | predict_v2 | [Write] +88 rows → out\RawTickDataOOS_preds.csv (total written: 15,630)
+17:26:07 | INFO    | predict_v2 | --- Chunk #102 -----------------------------------------------
+17:26:07 | INFO    | predict_v2 | [Resample] raw=500,000, buf=389, used_time='Time', used_price='Tick_Bid', range=[2022-07-05 08:00:00 → 2022-07-08 02:00:00], bars=67, carry_rows=2,938 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.091s
+17:26:07 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=91, total=91, seq_len=24, horizon_bars=1
+17:26:07 | INFO    | predict_v2 | [Emit] ends 23→89 → rows=67
+17:26:07 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:07 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:07 | INFO    | predict_v2 | [Chunk#102] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:07 | INFO    | predict_v2 | [Write] +67 rows → out\RawTickDataOOS_preds.csv (total written: 15,697)
+17:26:07 | INFO    | predict_v2 | --- Chunk #103 -----------------------------------------------
+17:26:08 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,938, used_time='Time', used_price='Tick_Bid', range=[2022-07-08 03:00:00 → 2022-07-12 17:00:00], bars=63, carry_rows=7,236 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.095s
+17:26:08 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=87, total=87, seq_len=24, horizon_bars=1
+17:26:08 | INFO    | predict_v2 | [Emit] ends 23→85 → rows=63
+17:26:08 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:08 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:08 | INFO    | predict_v2 | [Chunk#103] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:08 | INFO    | predict_v2 | [Write] +63 rows → out\RawTickDataOOS_preds.csv (total written: 15,760)
+17:26:08 | INFO    | predict_v2 | --- Chunk #104 -----------------------------------------------
+17:26:08 | INFO    | predict_v2 | [Resample] raw=500,000, buf=7,236, used_time='Time', used_price='Tick_Bid', range=[2022-07-12 18:00:00 → 2022-07-15 06:00:00], bars=61, carry_rows=1,773 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.100s
+17:26:08 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=85, total=85, seq_len=24, horizon_bars=1
+17:26:08 | INFO    | predict_v2 | [Emit] ends 23→83 → rows=61
+17:26:08 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:08 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:08 | INFO    | predict_v2 | [Chunk#104] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:08 | INFO    | predict_v2 | [Write] +61 rows → out\RawTickDataOOS_preds.csv (total written: 15,821)
+17:26:09 | INFO    | predict_v2 | --- Chunk #105 -----------------------------------------------
+17:26:09 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,773, used_time='Time', used_price='Tick_Bid', range=[2022-07-15 07:00:00 → 2022-07-20 08:00:00], bars=74, carry_rows=1,844 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.093s
+17:26:09 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=98, total=98, seq_len=24, horizon_bars=1
+17:26:09 | INFO    | predict_v2 | [Emit] ends 23→96 → rows=74
+17:26:09 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:09 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:09 | INFO    | predict_v2 | [Chunk#105] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:09 | INFO    | predict_v2 | [Write] +74 rows → out\RawTickDataOOS_preds.csv (total written: 15,895)
+17:26:09 | INFO    | predict_v2 | --- Chunk #106 -----------------------------------------------
+17:26:10 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,844, used_time='Time', used_price='Tick_Bid', range=[2022-07-20 09:00:00 → 2022-07-22 18:00:00], bars=58, carry_rows=6,256 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.091s
+17:26:10 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=82, total=82, seq_len=24, horizon_bars=1
+17:26:10 | INFO    | predict_v2 | [Emit] ends 23→80 → rows=58
+17:26:10 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:10 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:10 | INFO    | predict_v2 | [Chunk#106] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:10 | INFO    | predict_v2 | [Write] +58 rows → out\RawTickDataOOS_preds.csv (total written: 15,953)
+17:26:11 | INFO    | predict_v2 | --- Chunk #107 -----------------------------------------------
+17:26:11 | INFO    | predict_v2 | [Resample] raw=500,000, buf=6,256, used_time='Time', used_price='Tick_Bid', range=[2022-07-22 19:00:00 → 2022-07-28 05:00:00], bars=83, carry_rows=2,687 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.103s
+17:26:11 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=107, total=107, seq_len=24, horizon_bars=1
+17:26:11 | INFO    | predict_v2 | [Emit] ends 23→105 → rows=83
+17:26:11 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:11 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:11 | INFO    | predict_v2 | [Chunk#107] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:11 | INFO    | predict_v2 | [Write] +83 rows → out\RawTickDataOOS_preds.csv (total written: 16,036)
+17:26:11 | INFO    | predict_v2 | --- Chunk #108 -----------------------------------------------
+17:26:11 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,687, used_time='Time', used_price='Tick_Bid', range=[2022-07-28 06:00:00 → 2022-08-02 04:00:00], bars=71, carry_rows=3,612 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.093s
+17:26:11 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=95, total=95, seq_len=24, horizon_bars=1
+17:26:11 | INFO    | predict_v2 | [Emit] ends 23→93 → rows=71
+17:26:12 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:12 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:12 | INFO    | predict_v2 | [Chunk#108] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:12 | INFO    | predict_v2 | [Write] +71 rows → out\RawTickDataOOS_preds.csv (total written: 16,107)
+17:26:12 | INFO    | predict_v2 | --- Chunk #109 -----------------------------------------------
+17:26:12 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,612, used_time='Time', used_price='Tick_Bid', range=[2022-08-02 05:00:00 → 2022-08-05 10:00:00], bars=78, carry_rows=4,683 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.098s
+17:26:12 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=102, total=102, seq_len=24, horizon_bars=1
+17:26:12 | INFO    | predict_v2 | [Emit] ends 23→100 → rows=78
+17:26:12 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:12 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:12 | INFO    | predict_v2 | [Chunk#109] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:12 | INFO    | predict_v2 | [Write] +78 rows → out\RawTickDataOOS_preds.csv (total written: 16,185)
+17:26:13 | INFO    | predict_v2 | --- Chunk #110 -----------------------------------------------
+17:26:13 | INFO    | predict_v2 | [Resample] raw=500,000, buf=4,683, used_time='Time', used_price='Tick_Bid', range=[2022-08-05 11:00:00 → 2022-08-11 14:00:00], bars=100, carry_rows=5,485 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.103s
+17:26:13 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=124, total=124, seq_len=24, horizon_bars=1
+17:26:13 | INFO    | predict_v2 | [Emit] ends 23→122 → rows=100
+17:26:13 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:13 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:13 | INFO    | predict_v2 | [Chunk#110] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:13 | INFO    | predict_v2 | [Write] +100 rows → out\RawTickDataOOS_preds.csv (total written: 16,285)
+17:26:14 | INFO    | predict_v2 | --- Chunk #111 -----------------------------------------------
+17:26:14 | INFO    | predict_v2 | [Resample] raw=500,000, buf=5,485, used_time='Time', used_price='Tick_Bid', range=[2022-08-11 15:00:00 → 2022-08-17 17:00:00], bars=99, carry_rows=5,472 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.107s
+17:26:14 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=123, total=123, seq_len=24, horizon_bars=1
+17:26:14 | INFO    | predict_v2 | [Emit] ends 23→121 → rows=99
+17:26:14 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:14 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:14 | INFO    | predict_v2 | [Chunk#111] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:14 | INFO    | predict_v2 | [Write] +99 rows → out\RawTickDataOOS_preds.csv (total written: 16,384)
+17:26:15 | INFO    | predict_v2 | --- Chunk #112 -----------------------------------------------
+17:26:15 | INFO    | predict_v2 | [Resample] raw=500,000, buf=5,472, used_time='Time', used_price='Tick_Bid', range=[2022-08-17 18:00:00 → 2022-08-23 12:00:00], bars=91, carry_rows=5,312 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:26:15 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=115, total=115, seq_len=24, horizon_bars=1
+17:26:15 | INFO    | predict_v2 | [Emit] ends 23→113 → rows=91
+17:26:15 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:15 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:15 | INFO    | predict_v2 | [Chunk#112] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:15 | INFO    | predict_v2 | [Write] +91 rows → out\RawTickDataOOS_preds.csv (total written: 16,475)
+17:26:15 | INFO    | predict_v2 | --- Chunk #113 -----------------------------------------------
+17:26:15 | INFO    | predict_v2 | [Resample] raw=500,000, buf=5,312, used_time='Time', used_price='Tick_Bid', range=[2022-08-23 13:00:00 → 2022-08-25 17:00:00], bars=53, carry_rows=8,244 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.097s
+17:26:15 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=77, total=77, seq_len=24, horizon_bars=1
+17:26:15 | INFO    | predict_v2 | [Emit] ends 23→75 → rows=53
+17:26:16 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:16 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:16 | INFO    | predict_v2 | [Chunk#113] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:16 | INFO    | predict_v2 | [Write] +53 rows → out\RawTickDataOOS_preds.csv (total written: 16,528)
+17:26:18 | INFO    | predict_v2 | --- Chunk #114 -----------------------------------------------
+17:26:18 | INFO    | predict_v2 | [Resample] raw=500,000, buf=8,244, used_time='Time', used_price='Tick_Bid', range=[2022-08-25 18:00:00 → 2022-08-31 08:00:00], bars=87, carry_rows=4,109 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.107s
+17:26:18 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=111, total=111, seq_len=24, horizon_bars=1
+17:26:18 | INFO    | predict_v2 | [Emit] ends 23→109 → rows=87
+17:26:18 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:18 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:18 | INFO    | predict_v2 | [Chunk#114] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:18 | INFO    | predict_v2 | [Write] +87 rows → out\RawTickDataOOS_preds.csv (total written: 16,615)
+17:26:19 | INFO    | predict_v2 | --- Chunk #115 -----------------------------------------------
+17:26:19 | INFO    | predict_v2 | [Resample] raw=500,000, buf=4,109, used_time='Time', used_price='Tick_Bid', range=[2022-08-31 09:00:00 → 2022-09-06 16:00:00], bars=104, carry_rows=9,496 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:26:19 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=128, total=128, seq_len=24, horizon_bars=1
+17:26:19 | INFO    | predict_v2 | [Emit] ends 23→126 → rows=104
+17:26:19 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:19 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:19 | INFO    | predict_v2 | [Chunk#115] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:19 | INFO    | predict_v2 | [Write] +104 rows → out\RawTickDataOOS_preds.csv (total written: 16,719)
+17:26:20 | INFO    | predict_v2 | --- Chunk #116 -----------------------------------------------
+17:26:21 | INFO    | predict_v2 | [Resample] raw=500,000, buf=9,496, used_time='Time', used_price='Tick_Bid', range=[2022-09-06 17:00:00 → 2022-09-12 16:00:00], bars=96, carry_rows=3,177 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.113s
+17:26:21 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=120, total=120, seq_len=24, horizon_bars=1
+17:26:21 | INFO    | predict_v2 | [Emit] ends 23→118 → rows=96
+17:26:21 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:21 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:21 | INFO    | predict_v2 | [Chunk#116] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:21 | INFO    | predict_v2 | [Write] +96 rows → out\RawTickDataOOS_preds.csv (total written: 16,815)
+17:26:21 | INFO    | predict_v2 | --- Chunk #117 -----------------------------------------------
+17:26:21 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,177, used_time='Time', used_price='Tick_Bid', range=[2022-09-12 17:00:00 → 2022-09-19 03:00:00], bars=107, carry_rows=2,099 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.095s
+17:26:21 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=131, total=131, seq_len=24, horizon_bars=1
+17:26:21 | INFO    | predict_v2 | [Emit] ends 23→129 → rows=107
+17:26:21 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:21 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:21 | INFO    | predict_v2 | [Chunk#117] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:21 | INFO    | predict_v2 | [Write] +107 rows → out\RawTickDataOOS_preds.csv (total written: 16,922)
+17:26:22 | INFO    | predict_v2 | --- Chunk #118 -----------------------------------------------
+17:26:22 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,099, used_time='Time', used_price='Tick_Bid', range=[2022-09-19 04:00:00 → 2022-09-22 19:00:00], bars=88, carry_rows=940 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.100s
+17:26:22 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=112, total=112, seq_len=24, horizon_bars=1
+17:26:22 | INFO    | predict_v2 | [Emit] ends 23→110 → rows=88
+17:26:22 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:22 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:22 | INFO    | predict_v2 | [Chunk#118] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:22 | INFO    | predict_v2 | [Write] +88 rows → out\RawTickDataOOS_preds.csv (total written: 17,010)
+17:26:22 | INFO    | predict_v2 | --- Chunk #119 -----------------------------------------------
+17:26:22 | INFO    | predict_v2 | [Resample] raw=500,000, buf=940, used_time='Time', used_price='Tick_Bid', range=[2022-09-22 20:00:00 → 2022-09-27 20:00:00], bars=73, carry_rows=2,990 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.091s
+17:26:22 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=97, total=97, seq_len=24, horizon_bars=1
+17:26:22 | INFO    | predict_v2 | [Emit] ends 23→95 → rows=73
+17:26:22 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:22 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:22 | INFO    | predict_v2 | [Chunk#119] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:22 | INFO    | predict_v2 | [Write] +73 rows → out\RawTickDataOOS_preds.csv (total written: 17,083)
+17:26:23 | INFO    | predict_v2 | --- Chunk #120 -----------------------------------------------
+17:26:23 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,990, used_time='Time', used_price='Tick_Bid', range=[2022-09-27 21:00:00 → 2022-09-30 17:00:00], bars=69, carry_rows=3,323 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:26:23 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=93, total=93, seq_len=24, horizon_bars=1
+17:26:23 | INFO    | predict_v2 | [Emit] ends 23→91 → rows=69
+17:26:23 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:23 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:23 | INFO    | predict_v2 | [Chunk#120] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:23 | INFO    | predict_v2 | [Write] +69 rows → out\RawTickDataOOS_preds.csv (total written: 17,152)
+17:26:23 | INFO    | predict_v2 | --- Chunk #121 -----------------------------------------------
+17:26:23 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,323, used_time='Time', used_price='Tick_Bid', range=[2022-09-30 18:00:00 → 2022-10-06 10:00:00], bars=89, carry_rows=2,441 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.097s
+17:26:23 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=113, total=113, seq_len=24, horizon_bars=1
+17:26:23 | INFO    | predict_v2 | [Emit] ends 23→111 → rows=89
+17:26:23 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:23 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:23 | INFO    | predict_v2 | [Chunk#121] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:23 | INFO    | predict_v2 | [Write] +89 rows → out\RawTickDataOOS_preds.csv (total written: 17,241)
+17:26:24 | INFO    | predict_v2 | --- Chunk #122 -----------------------------------------------
+17:26:24 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,441, used_time='Time', used_price='Tick_Bid', range=[2022-10-06 11:00:00 → 2022-10-12 04:00:00], bars=90, carry_rows=89 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.103s
+17:26:24 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=114, total=114, seq_len=24, horizon_bars=1
+17:26:24 | INFO    | predict_v2 | [Emit] ends 23→112 → rows=90
+17:26:24 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:24 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:24 | INFO    | predict_v2 | [Chunk#122] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:24 | INFO    | predict_v2 | [Write] +90 rows → out\RawTickDataOOS_preds.csv (total written: 17,331)
+17:26:24 | INFO    | predict_v2 | --- Chunk #123 -----------------------------------------------
+17:26:24 | INFO    | predict_v2 | [Resample] raw=500,000, buf=89, used_time='Time', used_price='Tick_Bid', range=[2022-10-12 05:00:00 → 2022-10-17 17:00:00], bars=85, carry_rows=2,848 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.092s
+17:26:24 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=109, total=109, seq_len=24, horizon_bars=1
+17:26:24 | INFO    | predict_v2 | [Emit] ends 23→107 → rows=85
+17:26:24 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:24 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:24 | INFO    | predict_v2 | [Chunk#123] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:24 | INFO    | predict_v2 | [Write] +85 rows → out\RawTickDataOOS_preds.csv (total written: 17,416)
+17:26:25 | INFO    | predict_v2 | --- Chunk #124 -----------------------------------------------
+17:26:25 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,848, used_time='Time', used_price='Tick_Bid', range=[2022-10-17 18:00:00 → 2022-10-21 17:00:00], bars=96, carry_rows=4,254 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.112s
+17:26:25 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=120, total=120, seq_len=24, horizon_bars=1
+17:26:25 | INFO    | predict_v2 | [Emit] ends 23→118 → rows=96
+17:26:25 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:25 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:25 | INFO    | predict_v2 | [Chunk#124] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:25 | INFO    | predict_v2 | [Write] +96 rows → out\RawTickDataOOS_preds.csv (total written: 17,512)
+17:26:25 | INFO    | predict_v2 | --- Chunk #125 -----------------------------------------------
+17:26:25 | INFO    | predict_v2 | [Resample] raw=500,000, buf=4,254, used_time='Time', used_price='Tick_Bid', range=[2022-10-21 18:00:00 → 2022-10-27 05:00:00], bars=84, carry_rows=1,695 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.100s
+17:26:25 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=108, total=108, seq_len=24, horizon_bars=1
+17:26:25 | INFO    | predict_v2 | [Emit] ends 23→106 → rows=84
+17:26:25 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:25 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:25 | INFO    | predict_v2 | [Chunk#125] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:25 | INFO    | predict_v2 | [Write] +84 rows → out\RawTickDataOOS_preds.csv (total written: 17,596)
+17:26:26 | INFO    | predict_v2 | --- Chunk #126 -----------------------------------------------
+17:26:26 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,695, used_time='Time', used_price='Tick_Bid', range=[2022-10-27 06:00:00 → 2022-11-02 09:00:00], bars=100, carry_rows=3,342 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:26:26 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=124, total=124, seq_len=24, horizon_bars=1
+17:26:26 | INFO    | predict_v2 | [Emit] ends 23→122 → rows=100
+17:26:26 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:26 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:26 | INFO    | predict_v2 | [Chunk#126] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:26 | INFO    | predict_v2 | [Write] +100 rows → out\RawTickDataOOS_preds.csv (total written: 17,696)
+17:26:26 | INFO    | predict_v2 | --- Chunk #127 -----------------------------------------------
+17:26:26 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,342, used_time='Time', used_price='Tick_Bid', range=[2022-11-02 10:00:00 → 2022-11-08 08:00:00], bars=95, carry_rows=4,083 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.097s
+17:26:26 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=119, total=119, seq_len=24, horizon_bars=1
+17:26:26 | INFO    | predict_v2 | [Emit] ends 23→117 → rows=95
+17:26:26 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:27 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:27 | INFO    | predict_v2 | [Chunk#127] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:27 | INFO    | predict_v2 | [Write] +95 rows → out\RawTickDataOOS_preds.csv (total written: 17,791)
+17:26:27 | INFO    | predict_v2 | --- Chunk #128 -----------------------------------------------
+17:26:27 | INFO    | predict_v2 | [Resample] raw=500,000, buf=4,083, used_time='Time', used_price='Tick_Bid', range=[2022-11-08 09:00:00 → 2022-11-11 18:00:00], bars=82, carry_rows=2,341 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.097s
+17:26:27 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=106, total=106, seq_len=24, horizon_bars=1
+17:26:27 | INFO    | predict_v2 | [Emit] ends 23→104 → rows=82
+17:26:27 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:27 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:27 | INFO    | predict_v2 | [Chunk#128] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:27 | INFO    | predict_v2 | [Write] +82 rows → out\RawTickDataOOS_preds.csv (total written: 17,873)
+17:26:27 | INFO    | predict_v2 | --- Chunk #129 -----------------------------------------------
+17:26:28 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,341, used_time='Time', used_price='Tick_Bid', range=[2022-11-11 19:00:00 → 2022-11-17 09:00:00], bars=87, carry_rows=4,583 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.095s
+17:26:28 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=111, total=111, seq_len=24, horizon_bars=1
+17:26:28 | INFO    | predict_v2 | [Emit] ends 23→109 → rows=87
+17:26:28 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:28 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:28 | INFO    | predict_v2 | [Chunk#129] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:28 | INFO    | predict_v2 | [Write] +87 rows → out\RawTickDataOOS_preds.csv (total written: 17,960)
+17:26:28 | INFO    | predict_v2 | --- Chunk #130 -----------------------------------------------
+17:26:28 | INFO    | predict_v2 | [Resample] raw=500,000, buf=4,583, used_time='Time', used_price='Tick_Bid', range=[2022-11-17 10:00:00 → 2022-11-24 12:00:00], bars=123, carry_rows=3,257 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.100s
+17:26:28 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=147, total=147, seq_len=24, horizon_bars=1
+17:26:28 | INFO    | predict_v2 | [Emit] ends 23→145 → rows=123
+17:26:28 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:28 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:28 | INFO    | predict_v2 | [Chunk#130] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:28 | INFO    | predict_v2 | [Write] +123 rows → out\RawTickDataOOS_preds.csv (total written: 18,083)
+17:26:28 | INFO    | predict_v2 | --- Chunk #131 -----------------------------------------------
+17:26:29 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,257, used_time='Time', used_price='Tick_Bid', range=[2022-11-24 13:00:00 → 2022-12-01 14:00:00], bars=122, carry_rows=6,878 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.098s
+17:26:29 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=146, total=146, seq_len=24, horizon_bars=1
+17:26:29 | INFO    | predict_v2 | [Emit] ends 23→144 → rows=122
+17:26:29 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:29 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:29 | INFO    | predict_v2 | [Chunk#131] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:29 | INFO    | predict_v2 | [Write] +122 rows → out\RawTickDataOOS_preds.csv (total written: 18,205)
+17:26:29 | INFO    | predict_v2 | --- Chunk #132 -----------------------------------------------
+17:26:29 | INFO    | predict_v2 | [Resample] raw=500,000, buf=6,878, used_time='Time', used_price='Tick_Bid', range=[2022-12-01 15:00:00 → 2022-12-08 14:00:00], bars=120, carry_rows=2,784 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.105s
+17:26:29 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=144, total=144, seq_len=24, horizon_bars=1
+17:26:29 | INFO    | predict_v2 | [Emit] ends 23→142 → rows=120
+17:26:29 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:29 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:29 | INFO    | predict_v2 | [Chunk#132] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:29 | INFO    | predict_v2 | [Write] +120 rows → out\RawTickDataOOS_preds.csv (total written: 18,325)
+17:26:30 | INFO    | predict_v2 | --- Chunk #133 -----------------------------------------------
+17:26:30 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,784, used_time='Time', used_price='Tick_Bid', range=[2022-12-08 15:00:00 → 2022-12-15 17:00:00], bars=123, carry_rows=3,543 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.099s
+17:26:30 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=147, total=147, seq_len=24, horizon_bars=1
+17:26:30 | INFO    | predict_v2 | [Emit] ends 23→145 → rows=123
+17:26:30 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:30 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:30 | INFO    | predict_v2 | [Chunk#133] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:30 | INFO    | predict_v2 | [Write] +123 rows → out\RawTickDataOOS_preds.csv (total written: 18,448)
+17:26:30 | INFO    | predict_v2 | --- Chunk #134 -----------------------------------------------
+17:26:30 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,543, used_time='Time', used_price='Tick_Bid', range=[2022-12-15 18:00:00 → 2022-12-23 15:00:00], bars=142, carry_rows=479 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.100s
+17:26:30 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=166, total=166, seq_len=24, horizon_bars=1
+17:26:30 | INFO    | predict_v2 | [Emit] ends 23→164 → rows=142
+17:26:30 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:30 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:30 | INFO    | predict_v2 | [Chunk#134] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:30 | INFO    | predict_v2 | [Write] +142 rows → out\RawTickDataOOS_preds.csv (total written: 18,590)
+17:26:31 | INFO    | predict_v2 | --- Chunk #135 -----------------------------------------------
+17:26:31 | INFO    | predict_v2 | [Resample] raw=500,000, buf=479, used_time='Time', used_price='Tick_Bid', range=[2022-12-23 16:00:00 → 2023-01-04 15:00:00], bars=168, carry_rows=1,762 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.098s
+17:26:31 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=192, total=192, seq_len=24, horizon_bars=1
+17:26:31 | INFO    | predict_v2 | [Emit] ends 23→190 → rows=168
+17:26:31 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:31 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:31 | INFO    | predict_v2 | [Chunk#135] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:31 | INFO    | predict_v2 | [Write] +168 rows → out\RawTickDataOOS_preds.csv (total written: 18,758)
+17:26:31 | INFO    | predict_v2 | --- Chunk #136 -----------------------------------------------
+17:26:31 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,762, used_time='Time', used_price='Tick_Bid', range=[2023-01-04 16:00:00 → 2023-01-12 11:00:00], bars=140, carry_rows=1,057 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.098s
+17:26:31 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=164, total=164, seq_len=24, horizon_bars=1
+17:26:31 | INFO    | predict_v2 | [Emit] ends 23→162 → rows=140
+17:26:31 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:31 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:31 | INFO    | predict_v2 | [Chunk#136] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:31 | INFO    | predict_v2 | [Write] +140 rows → out\RawTickDataOOS_preds.csv (total written: 18,898)
+17:26:32 | INFO    | predict_v2 | --- Chunk #137 -----------------------------------------------
+17:26:32 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,057, used_time='Time', used_price='Tick_Bid', range=[2023-01-12 12:00:00 → 2023-01-19 18:00:00], bars=127, carry_rows=3,405 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.094s
+17:26:32 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=151, total=151, seq_len=24, horizon_bars=1
+17:26:32 | INFO    | predict_v2 | [Emit] ends 23→149 → rows=127
+17:26:32 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:32 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:32 | INFO    | predict_v2 | [Chunk#137] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:32 | INFO    | predict_v2 | [Write] +127 rows → out\RawTickDataOOS_preds.csv (total written: 19,025)
+17:26:32 | INFO    | predict_v2 | --- Chunk #138 -----------------------------------------------
+17:26:32 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,405, used_time='Time', used_price='Tick_Bid', range=[2023-01-19 19:00:00 → 2023-01-30 22:00:00], bars=172, carry_rows=28 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.106s
+17:26:32 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=196, total=196, seq_len=24, horizon_bars=1
+17:26:32 | INFO    | predict_v2 | [Emit] ends 23→194 → rows=172
+17:26:33 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:33 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:33 | INFO    | predict_v2 | [Chunk#138] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:33 | INFO    | predict_v2 | [Write] +172 rows → out\RawTickDataOOS_preds.csv (total written: 19,197)
+17:26:33 | INFO    | predict_v2 | --- Chunk #139 -----------------------------------------------
+17:26:33 | INFO    | predict_v2 | [Resample] raw=500,000, buf=28, used_time='Time', used_price='Tick_Bid', range=[2023-01-30 23:00:00 → 2023-02-07 19:00:00], bars=141, carry_rows=7,214 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.093s
+17:26:33 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=165, total=165, seq_len=24, horizon_bars=1
+17:26:33 | INFO    | predict_v2 | [Emit] ends 23→163 → rows=141
+17:26:33 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:33 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:33 | INFO    | predict_v2 | [Chunk#139] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:33 | INFO    | predict_v2 | [Write] +141 rows → out\RawTickDataOOS_preds.csv (total written: 19,338)
+17:26:33 | INFO    | predict_v2 | --- Chunk #140 -----------------------------------------------
+17:26:34 | INFO    | predict_v2 | [Resample] raw=500,000, buf=7,214, used_time='Time', used_price='Tick_Bid', range=[2023-02-07 20:00:00 → 2023-02-15 17:00:00], bars=142, carry_rows=229 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.110s
+17:26:34 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=166, total=166, seq_len=24, horizon_bars=1
+17:26:34 | INFO    | predict_v2 | [Emit] ends 23→164 → rows=142
+17:26:34 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:34 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:34 | INFO    | predict_v2 | [Chunk#140] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:34 | INFO    | predict_v2 | [Write] +142 rows → out\RawTickDataOOS_preds.csv (total written: 19,480)
+17:26:34 | INFO    | predict_v2 | --- Chunk #141 -----------------------------------------------
+17:26:34 | INFO    | predict_v2 | [Resample] raw=500,000, buf=229, used_time='Time', used_price='Tick_Bid', range=[2023-02-15 18:00:00 → 2023-02-23 17:00:00], bars=144, carry_rows=2,467 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.095s
+17:26:34 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=168, total=168, seq_len=24, horizon_bars=1
+17:26:34 | INFO    | predict_v2 | [Emit] ends 23→166 → rows=144
+17:26:34 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:34 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:34 | INFO    | predict_v2 | [Chunk#141] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:34 | INFO    | predict_v2 | [Write] +144 rows → out\RawTickDataOOS_preds.csv (total written: 19,624)
+17:26:35 | INFO    | predict_v2 | --- Chunk #142 -----------------------------------------------
+17:26:35 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,467, used_time='Time', used_price='Tick_Bid', range=[2023-02-23 18:00:00 → 2023-03-03 14:00:00], bars=141, carry_rows=3,156 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:26:35 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=165, total=165, seq_len=24, horizon_bars=1
+17:26:35 | INFO    | predict_v2 | [Emit] ends 23→163 → rows=141
+17:26:35 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:35 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:35 | INFO    | predict_v2 | [Chunk#142] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:35 | INFO    | predict_v2 | [Write] +141 rows → out\RawTickDataOOS_preds.csv (total written: 19,765)
+17:26:35 | INFO    | predict_v2 | --- Chunk #143 -----------------------------------------------
+17:26:35 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,156, used_time='Time', used_price='Tick_Bid', range=[2023-03-03 15:00:00 → 2023-03-13 07:00:00], bars=137, carry_rows=1,969 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.099s
+17:26:35 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=161, total=161, seq_len=24, horizon_bars=1
+17:26:35 | INFO    | predict_v2 | [Emit] ends 23→159 → rows=137
+17:26:35 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:35 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:35 | INFO    | predict_v2 | [Chunk#143] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:35 | INFO    | predict_v2 | [Write] +137 rows → out\RawTickDataOOS_preds.csv (total written: 19,902)
+17:26:36 | INFO    | predict_v2 | --- Chunk #144 -----------------------------------------------
+17:26:36 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,969, used_time='Time', used_price='Tick_Bid', range=[2023-03-13 08:00:00 → 2023-03-16 16:00:00], bars=81, carry_rows=6,013 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.096s
+17:26:36 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=105, total=105, seq_len=24, horizon_bars=1
+17:26:36 | INFO    | predict_v2 | [Emit] ends 23→103 → rows=81
+17:26:36 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:36 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:36 | INFO    | predict_v2 | [Chunk#144] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:36 | INFO    | predict_v2 | [Write] +81 rows → out\RawTickDataOOS_preds.csv (total written: 19,983)
+17:26:36 | INFO    | predict_v2 | --- Chunk #145 -----------------------------------------------
+17:26:36 | INFO    | predict_v2 | [Resample] raw=500,000, buf=6,013, used_time='Time', used_price='Tick_Bid', range=[2023-03-16 17:00:00 → 2023-03-23 21:00:00], bars=125, carry_rows=7,052 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:26:36 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=149, total=149, seq_len=24, horizon_bars=1
+17:26:36 | INFO    | predict_v2 | [Emit] ends 23→147 → rows=125
+17:26:36 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:36 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:36 | INFO    | predict_v2 | [Chunk#145] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:37 | INFO    | predict_v2 | [Write] +125 rows → out\RawTickDataOOS_preds.csv (total written: 20,108)
+17:26:37 | INFO    | predict_v2 | --- Chunk #146 -----------------------------------------------
+17:26:37 | INFO    | predict_v2 | [Resample] raw=500,000, buf=7,052, used_time='Time', used_price='Tick_Bid', range=[2023-03-23 22:00:00 → 2023-04-03 16:00:00], bars=162, carry_rows=7,752 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.113s
+17:26:37 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=186, total=186, seq_len=24, horizon_bars=1
+17:26:37 | INFO    | predict_v2 | [Emit] ends 23→184 → rows=162
+17:26:37 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:37 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:37 | INFO    | predict_v2 | [Chunk#146] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:37 | INFO    | predict_v2 | [Write] +162 rows → out\RawTickDataOOS_preds.csv (total written: 20,270)
+17:26:37 | INFO    | predict_v2 | --- Chunk #147 -----------------------------------------------
+17:26:37 | INFO    | predict_v2 | [Resample] raw=500,000, buf=7,752, used_time='Time', used_price='Tick_Bid', range=[2023-04-03 17:00:00 → 2023-04-14 15:00:00], bars=215, carry_rows=6,051 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.109s
+17:26:37 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=239, total=239, seq_len=24, horizon_bars=1
+17:26:37 | INFO    | predict_v2 | [Emit] ends 23→237 → rows=215
+17:26:38 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:38 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:38 | INFO    | predict_v2 | [Chunk#147] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:38 | INFO    | predict_v2 | [Write] +215 rows → out\RawTickDataOOS_preds.csv (total written: 20,485)
+17:26:38 | INFO    | predict_v2 | --- Chunk #148 -----------------------------------------------
+17:26:38 | INFO    | predict_v2 | [Resample] raw=500,000, buf=6,051, used_time='Time', used_price='Tick_Bid', range=[2023-04-14 16:00:00 → 2023-04-26 17:00:00], bars=194, carry_rows=4,123 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.111s
+17:26:38 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=218, total=218, seq_len=24, horizon_bars=1
+17:26:38 | INFO    | predict_v2 | [Emit] ends 23→216 → rows=194
+17:26:38 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:38 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:38 | INFO    | predict_v2 | [Chunk#148] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:38 | INFO    | predict_v2 | [Write] +194 rows → out\RawTickDataOOS_preds.csv (total written: 20,679)
+17:26:38 | INFO    | predict_v2 | --- Chunk #149 -----------------------------------------------
+17:26:39 | INFO    | predict_v2 | [Resample] raw=500,000, buf=4,123, used_time='Time', used_price='Tick_Bid', range=[2023-04-26 18:00:00 → 2023-05-05 12:00:00], bars=163, carry_rows=2,314 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.208s
+17:26:39 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=187, total=187, seq_len=24, horizon_bars=1
+17:26:39 | INFO    | predict_v2 | [Emit] ends 23→185 → rows=163
+17:26:39 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:39 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:39 | INFO    | predict_v2 | [Chunk#149] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:39 | INFO    | predict_v2 | [Write] +163 rows → out\RawTickDataOOS_preds.csv (total written: 20,842)
+17:26:39 | INFO    | predict_v2 | --- Chunk #150 -----------------------------------------------
+17:26:39 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,314, used_time='Time', used_price='Tick_Bid', range=[2023-05-05 13:00:00 → 2023-05-18 11:00:00], bars=215, carry_rows=2,309 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.103s
+17:26:39 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=239, total=239, seq_len=24, horizon_bars=1
+17:26:39 | INFO    | predict_v2 | [Emit] ends 23→237 → rows=215
+17:26:39 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:39 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:39 | INFO    | predict_v2 | [Chunk#150] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:39 | INFO    | predict_v2 | [Write] +215 rows → out\RawTickDataOOS_preds.csv (total written: 21,057)
+17:26:40 | INFO    | predict_v2 | --- Chunk #151 -----------------------------------------------
+17:26:40 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,309, used_time='Time', used_price='Tick_Bid', range=[2023-05-18 12:00:00 → 2023-05-31 09:00:00], bars=214, carry_rows=318 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.103s
+17:26:40 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=238, total=238, seq_len=24, horizon_bars=1
+17:26:40 | INFO    | predict_v2 | [Emit] ends 23→236 → rows=214
+17:26:40 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:40 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:40 | INFO    | predict_v2 | [Chunk#151] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:40 | INFO    | predict_v2 | [Write] +214 rows → out\RawTickDataOOS_preds.csv (total written: 21,271)
+17:26:40 | INFO    | predict_v2 | --- Chunk #152 -----------------------------------------------
+17:26:40 | INFO    | predict_v2 | [Resample] raw=500,000, buf=318, used_time='Time', used_price='Tick_Bid', range=[2023-05-31 10:00:00 → 2023-06-13 10:00:00], bars=217, carry_rows=449 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.099s
+17:26:40 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=241, total=241, seq_len=24, horizon_bars=1
+17:26:40 | INFO    | predict_v2 | [Emit] ends 23→239 → rows=217
+17:26:41 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:41 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:41 | INFO    | predict_v2 | [Chunk#152] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:41 | INFO    | predict_v2 | [Write] +217 rows → out\RawTickDataOOS_preds.csv (total written: 21,488)
+17:26:41 | INFO    | predict_v2 | --- Chunk #153 -----------------------------------------------
+17:26:41 | INFO    | predict_v2 | [Resample] raw=500,000, buf=449, used_time='Time', used_price='Tick_Bid', range=[2023-06-13 11:00:00 → 2023-06-23 17:00:00], bars=199, carry_rows=2,656 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.106s
+17:26:41 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=223, total=223, seq_len=24, horizon_bars=1
+17:26:41 | INFO    | predict_v2 | [Emit] ends 23→221 → rows=199
+17:26:41 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:41 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:41 | INFO    | predict_v2 | [Chunk#153] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:41 | INFO    | predict_v2 | [Write] +199 rows → out\RawTickDataOOS_preds.csv (total written: 21,687)
+17:26:42 | INFO    | predict_v2 | --- Chunk #154 -----------------------------------------------
+17:26:42 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,656, used_time='Time', used_price='Tick_Bid', range=[2023-06-23 18:00:00 → 2023-07-07 03:00:00], bars=226, carry_rows=226 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:26:42 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=250, total=250, seq_len=24, horizon_bars=1
+17:26:42 | INFO    | predict_v2 | [Emit] ends 23→248 → rows=226
+17:26:42 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:42 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:42 | INFO    | predict_v2 | [Chunk#154] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:42 | INFO    | predict_v2 | [Write] +226 rows → out\RawTickDataOOS_preds.csv (total written: 21,913)
+17:26:47 | INFO    | predict_v2 | --- Chunk #155 -----------------------------------------------
+17:26:47 | INFO    | predict_v2 | [Resample] raw=500,000, buf=226, used_time='Time', used_price='Tick_Bid', range=[2023-07-07 04:00:00 → 2023-07-19 12:00:00], bars=201, carry_rows=1,721 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:26:47 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=225, total=225, seq_len=24, horizon_bars=1
+17:26:47 | INFO    | predict_v2 | [Emit] ends 23→223 → rows=201
+17:26:47 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:47 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:47 | INFO    | predict_v2 | [Chunk#155] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:47 | INFO    | predict_v2 | [Write] +201 rows → out\RawTickDataOOS_preds.csv (total written: 22,114)
+17:26:54 | INFO    | predict_v2 | --- Chunk #156 -----------------------------------------------
+17:26:54 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,721, used_time='Time', used_price='Tick_Bid', range=[2023-07-19 13:00:00 → 2023-07-28 15:00:00], bars=171, carry_rows=344 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:26:54 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=195, total=195, seq_len=24, horizon_bars=1
+17:26:54 | INFO    | predict_v2 | [Emit] ends 23→193 → rows=171
+17:26:54 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:54 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:54 | INFO    | predict_v2 | [Chunk#156] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:54 | INFO    | predict_v2 | [Write] +171 rows → out\RawTickDataOOS_preds.csv (total written: 22,285)
+17:26:59 | INFO    | predict_v2 | --- Chunk #157 -----------------------------------------------
+17:26:59 | INFO    | predict_v2 | [Resample] raw=500,000, buf=344, used_time='Time', used_price='Tick_Bid', range=[2023-07-28 16:00:00 → 2023-08-11 14:00:00], bars=239, carry_rows=4,992 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.115s
+17:26:59 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=263, total=263, seq_len=24, horizon_bars=1
+17:26:59 | INFO    | predict_v2 | [Emit] ends 23→261 → rows=239
+17:26:59 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:26:59 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:26:59 | INFO    | predict_v2 | [Chunk#157] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:26:59 | INFO    | predict_v2 | [Write] +239 rows → out\RawTickDataOOS_preds.csv (total written: 22,524)
+17:26:59 | INFO    | predict_v2 | --- Chunk #158 -----------------------------------------------
+17:26:59 | INFO    | predict_v2 | [Resample] raw=500,000, buf=4,992, used_time='Time', used_price='Tick_Bid', range=[2023-08-11 15:00:00 → 2023-08-29 15:00:00], bars=289, carry_rows=676 (freq=60min) | GPU0 used=12.2MB reserved=52.0MB free=7.9GB / total=8.0GB | took 0.117s
+17:26:59 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=313, total=313, seq_len=24, horizon_bars=1
+17:26:59 | INFO    | predict_v2 | [Emit] ends 23→311 → rows=289
+17:27:00 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:00 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:00 | INFO    | predict_v2 | [Chunk#158] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:00 | INFO    | predict_v2 | [Write] +289 rows → out\RawTickDataOOS_preds.csv (total written: 22,813)
+17:27:00 | INFO    | predict_v2 | --- Chunk #159 -----------------------------------------------
+17:27:00 | INFO    | predict_v2 | [Resample] raw=500,000, buf=676, used_time='Time', used_price='Tick_Bid', range=[2023-08-29 16:00:00 → 2023-09-15 08:00:00], bars=305, carry_rows=1,540 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.109s
+17:27:00 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=329, total=329, seq_len=24, horizon_bars=1
+17:27:00 | INFO    | predict_v2 | [Emit] ends 23→327 → rows=305
+17:27:00 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:00 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:00 | INFO    | predict_v2 | [Chunk#159] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:00 | INFO    | predict_v2 | [Write] +305 rows → out\RawTickDataOOS_preds.csv (total written: 23,118)
+17:27:01 | INFO    | predict_v2 | --- Chunk #160 -----------------------------------------------
+17:27:01 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,540, used_time='Time', used_price='Tick_Bid', range=[2023-09-15 09:00:00 → 2023-10-02 14:00:00], bars=270, carry_rows=2,137 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.107s
+17:27:01 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=294, total=294, seq_len=24, horizon_bars=1
+17:27:01 | INFO    | predict_v2 | [Emit] ends 23→292 → rows=270
+17:27:01 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:01 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:01 | INFO    | predict_v2 | [Chunk#160] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:01 | INFO    | predict_v2 | [Write] +270 rows → out\RawTickDataOOS_preds.csv (total written: 23,388)
+17:27:01 | INFO    | predict_v2 | --- Chunk #161 -----------------------------------------------
+17:27:01 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,137, used_time='Time', used_price='Tick_Bid', range=[2023-10-02 15:00:00 → 2023-10-12 16:00:00], bars=194, carry_rows=2,156 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.142s
+17:27:01 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=218, total=218, seq_len=24, horizon_bars=1
+17:27:01 | INFO    | predict_v2 | [Emit] ends 23→216 → rows=194
+17:27:01 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:01 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:01 | INFO    | predict_v2 | [Chunk#161] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:01 | INFO    | predict_v2 | [Write] +194 rows → out\RawTickDataOOS_preds.csv (total written: 23,582)
+17:27:02 | INFO    | predict_v2 | --- Chunk #162 -----------------------------------------------
+17:27:02 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,156, used_time='Time', used_price='Tick_Bid', range=[2023-10-12 17:00:00 → 2023-10-26 07:00:00], bars=231, carry_rows=16 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.103s
+17:27:02 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=255, total=255, seq_len=24, horizon_bars=1
+17:27:02 | INFO    | predict_v2 | [Emit] ends 23→253 → rows=231
+17:27:02 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:02 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:02 | INFO    | predict_v2 | [Chunk#162] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:02 | INFO    | predict_v2 | [Write] +231 rows → out\RawTickDataOOS_preds.csv (total written: 23,813)
+17:27:02 | INFO    | predict_v2 | --- Chunk #163 -----------------------------------------------
+17:27:02 | INFO    | predict_v2 | [Resample] raw=500,000, buf=16, used_time='Time', used_price='Tick_Bid', range=[2023-10-26 08:00:00 → 2023-11-09 12:00:00], bars=245, carry_rows=1,397 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:27:02 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=269, total=269, seq_len=24, horizon_bars=1
+17:27:02 | INFO    | predict_v2 | [Emit] ends 23→267 → rows=245
+17:27:03 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:03 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:03 | INFO    | predict_v2 | [Chunk#163] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:03 | INFO    | predict_v2 | [Write] +245 rows → out\RawTickDataOOS_preds.csv (total written: 24,058)
+17:27:03 | INFO    | predict_v2 | --- Chunk #164 -----------------------------------------------
+17:27:03 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,397, used_time='Time', used_price='Tick_Bid', range=[2023-11-09 13:00:00 → 2023-11-22 04:00:00], bars=208, carry_rows=873 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.106s
+17:27:03 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=232, total=232, seq_len=24, horizon_bars=1
+17:27:03 | INFO    | predict_v2 | [Emit] ends 23→230 → rows=208
+17:27:03 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:03 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:03 | INFO    | predict_v2 | [Chunk#164] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:03 | INFO    | predict_v2 | [Write] +208 rows → out\RawTickDataOOS_preds.csv (total written: 24,266)
+17:27:03 | INFO    | predict_v2 | --- Chunk #165 -----------------------------------------------
+17:27:04 | INFO    | predict_v2 | [Resample] raw=500,000, buf=873, used_time='Time', used_price='Tick_Bid', range=[2023-11-22 05:00:00 → 2023-12-04 02:00:00], bars=190, carry_rows=3,544 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:27:04 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=214, total=214, seq_len=24, horizon_bars=1
+17:27:04 | INFO    | predict_v2 | [Emit] ends 23→212 → rows=190
+17:27:04 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:04 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:04 | INFO    | predict_v2 | [Chunk#165] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:04 | INFO    | predict_v2 | [Write] +190 rows → out\RawTickDataOOS_preds.csv (total written: 24,456)
+17:27:04 | INFO    | predict_v2 | --- Chunk #166 -----------------------------------------------
+17:27:04 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,544, used_time='Time', used_price='Tick_Bid', range=[2023-12-04 03:00:00 → 2023-12-13 03:00:00], bars=169, carry_rows=1,135 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:27:04 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=193, total=193, seq_len=24, horizon_bars=1
+17:27:04 | INFO    | predict_v2 | [Emit] ends 23→191 → rows=169
+17:27:04 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:04 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:04 | INFO    | predict_v2 | [Chunk#166] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:04 | INFO    | predict_v2 | [Write] +169 rows → out\RawTickDataOOS_preds.csv (total written: 24,625)
+17:27:05 | INFO    | predict_v2 | --- Chunk #167 -----------------------------------------------
+17:27:05 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,135, used_time='Time', used_price='Tick_Bid', range=[2023-12-13 04:00:00 → 2023-12-21 17:00:00], bars=158, carry_rows=3,134 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.101s
+17:27:05 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=182, total=182, seq_len=24, horizon_bars=1
+17:27:05 | INFO    | predict_v2 | [Emit] ends 23→180 → rows=158
+17:27:05 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:05 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:05 | INFO    | predict_v2 | [Chunk#167] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:05 | INFO    | predict_v2 | [Write] +158 rows → out\RawTickDataOOS_preds.csv (total written: 24,783)
+17:27:05 | INFO    | predict_v2 | --- Chunk #168 -----------------------------------------------
+17:27:05 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,134, used_time='Time', used_price='Tick_Bid', range=[2023-12-21 18:00:00 → 2024-01-05 02:00:00], bars=201, carry_rows=887 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.106s
+17:27:05 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=225, total=225, seq_len=24, horizon_bars=1
+17:27:05 | INFO    | predict_v2 | [Emit] ends 23→223 → rows=201
+17:27:05 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:06 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:06 | INFO    | predict_v2 | [Chunk#168] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:06 | INFO    | predict_v2 | [Write] +201 rows → out\RawTickDataOOS_preds.csv (total written: 24,984)
+17:27:06 | INFO    | predict_v2 | --- Chunk #169 -----------------------------------------------
+17:27:06 | INFO    | predict_v2 | [Resample] raw=500,000, buf=887, used_time='Time', used_price='Tick_Bid', range=[2024-01-05 03:00:00 → 2024-01-16 12:00:00], bars=178, carry_rows=1,643 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.101s
+17:27:06 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=202, total=202, seq_len=24, horizon_bars=1
+17:27:06 | INFO    | predict_v2 | [Emit] ends 23→200 → rows=178
+17:27:06 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:06 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:06 | INFO    | predict_v2 | [Chunk#169] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:06 | INFO    | predict_v2 | [Write] +178 rows → out\RawTickDataOOS_preds.csv (total written: 25,162)
+17:27:06 | INFO    | predict_v2 | --- Chunk #170 -----------------------------------------------
+17:27:06 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,643, used_time='Time', used_price='Tick_Bid', range=[2024-01-16 13:00:00 → 2024-01-25 19:00:00], bars=175, carry_rows=1,727 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.100s
+17:27:06 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=199, total=199, seq_len=24, horizon_bars=1
+17:27:06 | INFO    | predict_v2 | [Emit] ends 23→197 → rows=175
+17:27:07 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:07 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:07 | INFO    | predict_v2 | [Chunk#170] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:07 | INFO    | predict_v2 | [Write] +175 rows → out\RawTickDataOOS_preds.csv (total written: 25,337)
+17:27:07 | INFO    | predict_v2 | --- Chunk #171 -----------------------------------------------
+17:27:07 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,727, used_time='Time', used_price='Tick_Bid', range=[2024-01-25 20:00:00 → 2024-02-05 17:00:00], bars=166, carry_rows=3,289 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.105s
+17:27:07 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=190, total=190, seq_len=24, horizon_bars=1
+17:27:07 | INFO    | predict_v2 | [Emit] ends 23→188 → rows=166
+17:27:07 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:07 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:07 | INFO    | predict_v2 | [Chunk#171] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:07 | INFO    | predict_v2 | [Write] +166 rows → out\RawTickDataOOS_preds.csv (total written: 25,503)
+17:27:08 | INFO    | predict_v2 | --- Chunk #172 -----------------------------------------------
+17:27:08 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,289, used_time='Time', used_price='Tick_Bid', range=[2024-02-05 18:00:00 → 2024-02-15 17:00:00], bars=192, carry_rows=895 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.107s
+17:27:08 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=216, total=216, seq_len=24, horizon_bars=1
+17:27:08 | INFO    | predict_v2 | [Emit] ends 23→214 → rows=192
+17:27:08 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:08 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:08 | INFO    | predict_v2 | [Chunk#172] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:08 | INFO    | predict_v2 | [Write] +192 rows → out\RawTickDataOOS_preds.csv (total written: 25,695)
+17:27:08 | INFO    | predict_v2 | --- Chunk #173 -----------------------------------------------
+17:27:08 | INFO    | predict_v2 | [Resample] raw=500,000, buf=895, used_time='Time', used_price='Tick_Bid', range=[2024-02-15 18:00:00 → 2024-02-27 16:00:00], bars=191, carry_rows=1,311 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:27:08 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=215, total=215, seq_len=24, horizon_bars=1
+17:27:08 | INFO    | predict_v2 | [Emit] ends 23→213 → rows=191
+17:27:08 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:08 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:08 | INFO    | predict_v2 | [Chunk#173] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:08 | INFO    | predict_v2 | [Write] +191 rows → out\RawTickDataOOS_preds.csv (total written: 25,886)
+17:27:09 | INFO    | predict_v2 | --- Chunk #174 -----------------------------------------------
+17:27:09 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,311, used_time='Time', used_price='Tick_Bid', range=[2024-02-27 17:00:00 → 2024-03-06 15:00:00], bars=143, carry_rows=5,024 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.097s
+17:27:09 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=167, total=167, seq_len=24, horizon_bars=1
+17:27:09 | INFO    | predict_v2 | [Emit] ends 23→165 → rows=143
+17:27:09 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:09 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:09 | INFO    | predict_v2 | [Chunk#174] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:09 | INFO    | predict_v2 | [Write] +143 rows → out\RawTickDataOOS_preds.csv (total written: 26,029)
+17:27:09 | INFO    | predict_v2 | --- Chunk #175 -----------------------------------------------
+17:27:09 | INFO    | predict_v2 | [Resample] raw=500,000, buf=5,024, used_time='Time', used_price='Tick_Bid', range=[2024-03-06 16:00:00 → 2024-03-14 10:00:00], bars=139, carry_rows=2,282 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.105s
+17:27:09 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=163, total=163, seq_len=24, horizon_bars=1
+17:27:09 | INFO    | predict_v2 | [Emit] ends 23→161 → rows=139
+17:27:10 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:10 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:10 | INFO    | predict_v2 | [Chunk#175] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:10 | INFO    | predict_v2 | [Write] +139 rows → out\RawTickDataOOS_preds.csv (total written: 26,168)
+17:27:10 | INFO    | predict_v2 | --- Chunk #176 -----------------------------------------------
+17:27:10 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,282, used_time='Time', used_price='Tick_Bid', range=[2024-03-14 11:00:00 → 2024-03-25 01:00:00], bars=159, carry_rows=420 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.099s
+17:27:10 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=183, total=183, seq_len=24, horizon_bars=1
+17:27:10 | INFO    | predict_v2 | [Emit] ends 23→181 → rows=159
+17:27:10 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:10 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:10 | INFO    | predict_v2 | [Chunk#176] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:10 | INFO    | predict_v2 | [Write] +159 rows → out\RawTickDataOOS_preds.csv (total written: 26,327)
+17:27:11 | INFO    | predict_v2 | --- Chunk #177 -----------------------------------------------
+17:27:11 | INFO    | predict_v2 | [Resample] raw=500,000, buf=420, used_time='Time', used_price='Tick_Bid', range=[2024-03-25 02:00:00 → 2024-04-04 13:00:00], bars=204, carry_rows=1,311 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:27:11 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=228, total=228, seq_len=24, horizon_bars=1
+17:27:11 | INFO    | predict_v2 | [Emit] ends 23→226 → rows=204
+17:27:11 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:11 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:11 | INFO    | predict_v2 | [Chunk#177] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:11 | INFO    | predict_v2 | [Write] +204 rows → out\RawTickDataOOS_preds.csv (total written: 26,531)
+17:27:11 | INFO    | predict_v2 | --- Chunk #178 -----------------------------------------------
+17:27:11 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,311, used_time='Time', used_price='Tick_Bid', range=[2024-04-04 14:00:00 → 2024-04-12 20:00:00], bars=151, carry_rows=505 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.099s
+17:27:11 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=175, total=175, seq_len=24, horizon_bars=1
+17:27:11 | INFO    | predict_v2 | [Emit] ends 23→173 → rows=151
+17:27:11 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:11 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:11 | INFO    | predict_v2 | [Chunk#178] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:11 | INFO    | predict_v2 | [Write] +151 rows → out\RawTickDataOOS_preds.csv (total written: 26,682)
+17:27:12 | INFO    | predict_v2 | --- Chunk #179 -----------------------------------------------
+17:27:12 | INFO    | predict_v2 | [Resample] raw=500,000, buf=505, used_time='Time', used_price='Tick_Bid', range=[2024-04-12 21:00:00 → 2024-04-23 06:00:00], bars=154, carry_rows=704 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.096s
+17:27:12 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=178, total=178, seq_len=24, horizon_bars=1
+17:27:12 | INFO    | predict_v2 | [Emit] ends 23→176 → rows=154
+17:27:12 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:12 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:12 | INFO    | predict_v2 | [Chunk#179] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:12 | INFO    | predict_v2 | [Write] +154 rows → out\RawTickDataOOS_preds.csv (total written: 26,836)
+17:27:12 | INFO    | predict_v2 | --- Chunk #180 -----------------------------------------------
+17:27:12 | INFO    | predict_v2 | [Resample] raw=500,000, buf=704, used_time='Time', used_price='Tick_Bid', range=[2024-04-23 07:00:00 → 2024-05-06 22:00:00], bars=232, carry_rows=96 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.100s
+17:27:12 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=256, total=256, seq_len=24, horizon_bars=1
+17:27:12 | INFO    | predict_v2 | [Emit] ends 23→254 → rows=232
+17:27:12 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:12 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:12 | INFO    | predict_v2 | [Chunk#180] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:12 | INFO    | predict_v2 | [Write] +232 rows → out\RawTickDataOOS_preds.csv (total written: 27,068)
+17:27:13 | INFO    | predict_v2 | --- Chunk #181 -----------------------------------------------
+17:27:13 | INFO    | predict_v2 | [Resample] raw=500,000, buf=96, used_time='Time', used_price='Tick_Bid', range=[2024-05-06 23:00:00 → 2024-05-23 17:00:00], bars=307, carry_rows=2,764 (freq=60min) | GPU0 used=12.2MB reserved=64.0MB free=7.9GB / total=8.0GB | took 0.106s
+17:27:13 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=331, total=331, seq_len=24, horizon_bars=1
+17:27:13 | INFO    | predict_v2 | [Emit] ends 23→329 → rows=307
+17:27:13 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:13 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:13 | INFO    | predict_v2 | [Chunk#181] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:13 | INFO    | predict_v2 | [Write] +307 rows → out\RawTickDataOOS_preds.csv (total written: 27,375)
+17:27:13 | INFO    | predict_v2 | --- Chunk #182 -----------------------------------------------
+17:27:13 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,764, used_time='Time', used_price='Tick_Bid', range=[2024-05-23 18:00:00 → 2024-06-10 13:00:00], bars=284, carry_rows=1,518 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.108s
+17:27:13 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=308, total=308, seq_len=24, horizon_bars=1
+17:27:13 | INFO    | predict_v2 | [Emit] ends 23→306 → rows=284
+17:27:14 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:14 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:14 | INFO    | predict_v2 | [Chunk#182] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:14 | INFO    | predict_v2 | [Write] +284 rows → out\RawTickDataOOS_preds.csv (total written: 27,659)
+17:27:14 | INFO    | predict_v2 | --- Chunk #183 -----------------------------------------------
+17:27:14 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,518, used_time='Time', used_price='Tick_Bid', range=[2024-06-10 14:00:00 → 2024-06-27 10:00:00], bars=309, carry_rows=1,480 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.112s
+17:27:14 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=333, total=333, seq_len=24, horizon_bars=1
+17:27:14 | INFO    | predict_v2 | [Emit] ends 23→331 → rows=309
+17:27:14 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:14 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:14 | INFO    | predict_v2 | [Chunk#183] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:14 | INFO    | predict_v2 | [Write] +309 rows → out\RawTickDataOOS_preds.csv (total written: 27,968)
+17:27:14 | INFO    | predict_v2 | --- Chunk #184 -----------------------------------------------
+17:27:15 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,480, used_time='Time', used_price='Tick_Bid', range=[2024-06-27 11:00:00 → 2024-07-15 19:00:00], bars=297, carry_rows=2,723 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.108s
+17:27:15 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=321, total=321, seq_len=24, horizon_bars=1
+17:27:15 | INFO    | predict_v2 | [Emit] ends 23→319 → rows=297
+17:27:15 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:15 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:15 | INFO    | predict_v2 | [Chunk#184] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:15 | INFO    | predict_v2 | [Write] +297 rows → out\RawTickDataOOS_preds.csv (total written: 28,265)
+17:27:15 | INFO    | predict_v2 | --- Chunk #185 -----------------------------------------------
+17:27:15 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,723, used_time='Time', used_price='Tick_Bid', range=[2024-07-15 20:00:00 → 2024-07-25 14:00:00], bars=187, carry_rows=4,028 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.108s
+17:27:15 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=211, total=211, seq_len=24, horizon_bars=1
+17:27:15 | INFO    | predict_v2 | [Emit] ends 23→209 → rows=187
+17:27:15 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:15 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:15 | INFO    | predict_v2 | [Chunk#185] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:15 | INFO    | predict_v2 | [Write] +187 rows → out\RawTickDataOOS_preds.csv (total written: 28,452)
+17:27:16 | INFO    | predict_v2 | --- Chunk #186 -----------------------------------------------
+17:27:16 | INFO    | predict_v2 | [Resample] raw=500,000, buf=4,028, used_time='Time', used_price='Tick_Bid', range=[2024-07-25 15:00:00 → 2024-08-06 10:00:00], bars=188, carry_rows=1,692 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.110s
+17:27:16 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=212, total=212, seq_len=24, horizon_bars=1
+17:27:16 | INFO    | predict_v2 | [Emit] ends 23→210 → rows=188
+17:27:16 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:16 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:16 | INFO    | predict_v2 | [Chunk#186] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:16 | INFO    | predict_v2 | [Write] +188 rows → out\RawTickDataOOS_preds.csv (total written: 28,640)
+17:27:16 | INFO    | predict_v2 | --- Chunk #187 -----------------------------------------------
+17:27:16 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,692, used_time='Time', used_price='Tick_Bid', range=[2024-08-06 11:00:00 → 2024-08-20 22:00:00], bars=252, carry_rows=998 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.106s
+17:27:16 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=276, total=276, seq_len=24, horizon_bars=1
+17:27:16 | INFO    | predict_v2 | [Emit] ends 23→274 → rows=252
+17:27:16 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:16 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:16 | INFO    | predict_v2 | [Chunk#187] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:16 | INFO    | predict_v2 | [Write] +252 rows → out\RawTickDataOOS_preds.csv (total written: 28,892)
+17:27:17 | INFO    | predict_v2 | --- Chunk #188 -----------------------------------------------
+17:27:17 | INFO    | predict_v2 | [Resample] raw=500,000, buf=998, used_time='Time', used_price='Tick_Bid', range=[2024-08-20 23:00:00 → 2024-09-04 16:00:00], bars=258, carry_rows=2,456 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:27:17 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=282, total=282, seq_len=24, horizon_bars=1
+17:27:17 | INFO    | predict_v2 | [Emit] ends 23→280 → rows=258
+17:27:17 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:17 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:17 | INFO    | predict_v2 | [Chunk#188] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:17 | INFO    | predict_v2 | [Write] +258 rows → out\RawTickDataOOS_preds.csv (total written: 29,150)
+17:27:17 | INFO    | predict_v2 | --- Chunk #189 -----------------------------------------------
+17:27:17 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,456, used_time='Time', used_price='Tick_Bid', range=[2024-09-04 17:00:00 → 2024-09-19 02:00:00], bars=250, carry_rows=179 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.110s
+17:27:17 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=274, total=274, seq_len=24, horizon_bars=1
+17:27:17 | INFO    | predict_v2 | [Emit] ends 23→272 → rows=250
+17:27:18 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:18 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:18 | INFO    | predict_v2 | [Chunk#189] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:18 | INFO    | predict_v2 | [Write] +250 rows → out\RawTickDataOOS_preds.csv (total written: 29,400)
+17:27:18 | INFO    | predict_v2 | --- Chunk #190 -----------------------------------------------
+17:27:18 | INFO    | predict_v2 | [Resample] raw=500,000, buf=179, used_time='Time', used_price='Tick_Bid', range=[2024-09-19 03:00:00 → 2024-10-01 18:00:00], bars=208, carry_rows=1,399 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.103s
+17:27:18 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=232, total=232, seq_len=24, horizon_bars=1
+17:27:18 | INFO    | predict_v2 | [Emit] ends 23→230 → rows=208
+17:27:18 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:18 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:18 | INFO    | predict_v2 | [Chunk#190] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:18 | INFO    | predict_v2 | [Write] +208 rows → out\RawTickDataOOS_preds.csv (total written: 29,608)
+17:27:18 | INFO    | predict_v2 | --- Chunk #191 -----------------------------------------------
+17:27:19 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,399, used_time='Time', used_price='Tick_Bid', range=[2024-10-01 19:00:00 → 2024-10-16 09:00:00], bars=255, carry_rows=1,265 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.109s
+17:27:19 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=279, total=279, seq_len=24, horizon_bars=1
+17:27:19 | INFO    | predict_v2 | [Emit] ends 23→277 → rows=255
+17:27:19 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:19 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:19 | INFO    | predict_v2 | [Chunk#191] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:19 | INFO    | predict_v2 | [Write] +255 rows → out\RawTickDataOOS_preds.csv (total written: 29,863)
+17:27:19 | INFO    | predict_v2 | --- Chunk #192 -----------------------------------------------
+17:27:19 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,265, used_time='Time', used_price='Tick_Bid', range=[2024-10-16 10:00:00 → 2024-11-01 10:00:00], bars=289, carry_rows=701 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.106s
+17:27:19 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=313, total=313, seq_len=24, horizon_bars=1
+17:27:19 | INFO    | predict_v2 | [Emit] ends 23→311 → rows=289
+17:27:19 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:20 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:20 | INFO    | predict_v2 | [Chunk#192] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:20 | INFO    | predict_v2 | [Write] +289 rows → out\RawTickDataOOS_preds.csv (total written: 30,152)
+17:27:20 | INFO    | predict_v2 | --- Chunk #193 -----------------------------------------------
+17:27:20 | INFO    | predict_v2 | [Resample] raw=500,000, buf=701, used_time='Time', used_price='Tick_Bid', range=[2024-11-01 11:00:00 → 2024-11-13 14:00:00], bars=196, carry_rows=5,446 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.105s
+17:27:20 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=220, total=220, seq_len=24, horizon_bars=1
+17:27:20 | INFO    | predict_v2 | [Emit] ends 23→218 → rows=196
+17:27:20 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:20 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:20 | INFO    | predict_v2 | [Chunk#193] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:20 | INFO    | predict_v2 | [Write] +196 rows → out\RawTickDataOOS_preds.csv (total written: 30,348)
+17:27:20 | INFO    | predict_v2 | --- Chunk #194 -----------------------------------------------
+17:27:20 | INFO    | predict_v2 | [Resample] raw=500,000, buf=5,446, used_time='Time', used_price='Tick_Bid', range=[2024-11-13 15:00:00 → 2024-11-25 09:00:00], bars=187, carry_rows=3,888 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.109s
+17:27:20 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=211, total=211, seq_len=24, horizon_bars=1
+17:27:20 | INFO    | predict_v2 | [Emit] ends 23→209 → rows=187
+17:27:21 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:21 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:21 | INFO    | predict_v2 | [Chunk#194] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:21 | INFO    | predict_v2 | [Write] +187 rows → out\RawTickDataOOS_preds.csv (total written: 30,535)
+17:27:21 | INFO    | predict_v2 | --- Chunk #195 -----------------------------------------------
+17:27:21 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,888, used_time='Time', used_price='Tick_Bid', range=[2024-11-25 10:00:00 → 2024-12-03 22:00:00], bars=157, carry_rows=970 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.109s
+17:27:21 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=181, total=181, seq_len=24, horizon_bars=1
+17:27:21 | INFO    | predict_v2 | [Emit] ends 23→179 → rows=157
+17:27:21 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:21 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:21 | INFO    | predict_v2 | [Chunk#195] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:21 | INFO    | predict_v2 | [Write] +157 rows → out\RawTickDataOOS_preds.csv (total written: 30,692)
+17:27:21 | INFO    | predict_v2 | --- Chunk #196 -----------------------------------------------
+17:27:22 | INFO    | predict_v2 | [Resample] raw=500,000, buf=970, used_time='Time', used_price='Tick_Bid', range=[2024-12-03 23:00:00 → 2024-12-13 13:00:00], bars=183, carry_rows=742 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.101s
+17:27:22 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=207, total=207, seq_len=24, horizon_bars=1
+17:27:22 | INFO    | predict_v2 | [Emit] ends 23→205 → rows=183
+17:27:22 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:22 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:22 | INFO    | predict_v2 | [Chunk#196] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:22 | INFO    | predict_v2 | [Write] +183 rows → out\RawTickDataOOS_preds.csv (total written: 30,875)
+17:27:22 | INFO    | predict_v2 | --- Chunk #197 -----------------------------------------------
+17:27:22 | INFO    | predict_v2 | [Resample] raw=500,000, buf=742, used_time='Time', used_price='Tick_Bid', range=[2024-12-13 14:00:00 → 2024-12-26 17:00:00], bars=197, carry_rows=1,565 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:27:22 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=221, total=221, seq_len=24, horizon_bars=1
+17:27:22 | INFO    | predict_v2 | [Emit] ends 23→219 → rows=197
+17:27:22 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:22 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:22 | INFO    | predict_v2 | [Chunk#197] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:22 | INFO    | predict_v2 | [Write] +197 rows → out\RawTickDataOOS_preds.csv (total written: 31,072)
+17:27:23 | INFO    | predict_v2 | --- Chunk #198 -----------------------------------------------
+17:27:23 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,565, used_time='Time', used_price='Tick_Bid', range=[2024-12-26 18:00:00 → 2025-01-08 21:00:00], bars=197, carry_rows=485 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.105s
+17:27:23 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=221, total=221, seq_len=24, horizon_bars=1
+17:27:23 | INFO    | predict_v2 | [Emit] ends 23→219 → rows=197
+17:27:23 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:23 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:23 | INFO    | predict_v2 | [Chunk#198] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:23 | INFO    | predict_v2 | [Write] +197 rows → out\RawTickDataOOS_preds.csv (total written: 31,269)
+17:27:23 | INFO    | predict_v2 | --- Chunk #199 -----------------------------------------------
+17:27:23 | INFO    | predict_v2 | [Resample] raw=500,000, buf=485, used_time='Time', used_price='Tick_Bid', range=[2025-01-08 22:00:00 → 2025-01-20 14:00:00], bars=185, carry_rows=1,456 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:27:23 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=209, total=209, seq_len=24, horizon_bars=1
+17:27:23 | INFO    | predict_v2 | [Emit] ends 23→207 → rows=185
+17:27:24 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:24 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:24 | INFO    | predict_v2 | [Chunk#199] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:24 | INFO    | predict_v2 | [Write] +185 rows → out\RawTickDataOOS_preds.csv (total written: 31,454)
+17:27:24 | INFO    | predict_v2 | --- Chunk #200 -----------------------------------------------
+17:27:24 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,456, used_time='Time', used_price='Tick_Bid', range=[2025-01-20 15:00:00 → 2025-01-29 14:00:00], bars=168, carry_rows=3,374 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.099s
+17:27:24 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=192, total=192, seq_len=24, horizon_bars=1
+17:27:24 | INFO    | predict_v2 | [Emit] ends 23→190 → rows=168
+17:27:24 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:24 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:24 | INFO    | predict_v2 | [Chunk#200] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:24 | INFO    | predict_v2 | [Write] +168 rows → out\RawTickDataOOS_preds.csv (total written: 31,622)
+17:27:24 | INFO    | predict_v2 | --- Chunk #201 -----------------------------------------------
+17:27:24 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,374, used_time='Time', used_price='Tick_Bid', range=[2025-01-29 15:00:00 → 2025-02-06 10:00:00], bars=140, carry_rows=1,058 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:27:24 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=164, total=164, seq_len=24, horizon_bars=1
+17:27:24 | INFO    | predict_v2 | [Emit] ends 23→162 → rows=140
+17:27:25 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:25 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:25 | INFO    | predict_v2 | [Chunk#201] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:25 | INFO    | predict_v2 | [Write] +140 rows → out\RawTickDataOOS_preds.csv (total written: 31,762)
+17:27:25 | INFO    | predict_v2 | --- Chunk #202 -----------------------------------------------
+17:27:25 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,058, used_time='Time', used_price='Tick_Bid', range=[2025-02-06 11:00:00 → 2025-02-17 23:00:00], bars=181, carry_rows=1,088 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.100s
+17:27:25 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=205, total=205, seq_len=24, horizon_bars=1
+17:27:25 | INFO    | predict_v2 | [Emit] ends 23→203 → rows=181
+17:27:25 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:25 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:25 | INFO    | predict_v2 | [Chunk#202] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:25 | INFO    | predict_v2 | [Write] +181 rows → out\RawTickDataOOS_preds.csv (total written: 31,943)
+17:27:25 | INFO    | predict_v2 | --- Chunk #203 -----------------------------------------------
+17:27:26 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,088, used_time='Time', used_price='Tick_Bid', range=[2025-02-18 00:00:00 → 2025-02-27 15:00:00], bars=184, carry_rows=1,462 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.109s
+17:27:26 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=208, total=208, seq_len=24, horizon_bars=1
+17:27:26 | INFO    | predict_v2 | [Emit] ends 23→206 → rows=184
+17:27:26 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:26 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:26 | INFO    | predict_v2 | [Chunk#203] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:26 | INFO    | predict_v2 | [Write] +184 rows → out\RawTickDataOOS_preds.csv (total written: 32,127)
+17:27:26 | INFO    | predict_v2 | --- Chunk #204 -----------------------------------------------
+17:27:26 | INFO    | predict_v2 | [Resample] raw=500,000, buf=1,462, used_time='Time', used_price='Tick_Bid', range=[2025-02-27 16:00:00 → 2025-03-06 17:00:00], bars=122, carry_rows=5,208 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.108s
+17:27:26 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=146, total=146, seq_len=24, horizon_bars=1
+17:27:26 | INFO    | predict_v2 | [Emit] ends 23→144 → rows=122
+17:27:26 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:26 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:26 | INFO    | predict_v2 | [Chunk#204] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:26 | INFO    | predict_v2 | [Write] +122 rows → out\RawTickDataOOS_preds.csv (total written: 32,249)
+17:27:27 | INFO    | predict_v2 | --- Chunk #205 -----------------------------------------------
+17:27:27 | INFO    | predict_v2 | [Resample] raw=500,000, buf=5,208, used_time='Time', used_price='Tick_Bid', range=[2025-03-06 18:00:00 → 2025-03-14 14:00:00], bars=141, carry_rows=3,403 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.105s
+17:27:27 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=165, total=165, seq_len=24, horizon_bars=1
+17:27:27 | INFO    | predict_v2 | [Emit] ends 23→163 → rows=141
+17:27:27 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:27 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:27 | INFO    | predict_v2 | [Chunk#205] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:27 | INFO    | predict_v2 | [Write] +141 rows → out\RawTickDataOOS_preds.csv (total written: 32,390)
+17:27:27 | INFO    | predict_v2 | --- Chunk #206 -----------------------------------------------
+17:27:27 | INFO    | predict_v2 | [Resample] raw=500,000, buf=3,403, used_time='Time', used_price='Tick_Bid', range=[2025-03-14 15:00:00 → 2025-03-26 19:00:00], bars=197, carry_rows=4,620 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.117s
+17:27:27 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=221, total=221, seq_len=24, horizon_bars=1
+17:27:27 | INFO    | predict_v2 | [Emit] ends 23→219 → rows=197
+17:27:27 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:27 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:27 | INFO    | predict_v2 | [Chunk#206] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:27 | INFO    | predict_v2 | [Write] +197 rows → out\RawTickDataOOS_preds.csv (total written: 32,587)
+17:27:28 | INFO    | predict_v2 | --- Chunk #207 -----------------------------------------------
+17:27:28 | INFO    | predict_v2 | [Resample] raw=500,000, buf=4,620, used_time='Time', used_price='Tick_Bid', range=[2025-03-26 20:00:00 → 2025-04-04 00:00:00], bars=149, carry_rows=2,004 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.131s
+17:27:28 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=173, total=173, seq_len=24, horizon_bars=1
+17:27:28 | INFO    | predict_v2 | [Emit] ends 23→171 → rows=149
+17:27:28 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:28 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:28 | INFO    | predict_v2 | [Chunk#207] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:28 | INFO    | predict_v2 | [Write] +149 rows → out\RawTickDataOOS_preds.csv (total written: 32,736)
+17:27:28 | INFO    | predict_v2 | --- Chunk #208 -----------------------------------------------
+17:27:29 | INFO    | predict_v2 | [Resample] raw=500,000, buf=2,004, used_time='Time', used_price='Tick_Bid', range=[2025-04-04 01:00:00 → 2025-04-08 16:00:00], bars=64, carry_rows=7,791 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:27:29 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=88, total=88, seq_len=24, horizon_bars=1
+17:27:29 | INFO    | predict_v2 | [Emit] ends 23→86 → rows=64
+17:27:29 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:29 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:29 | INFO    | predict_v2 | [Chunk#208] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:29 | INFO    | predict_v2 | [Write] +64 rows → out\RawTickDataOOS_preds.csv (total written: 32,800)
+17:27:29 | INFO    | predict_v2 | --- Chunk #209 -----------------------------------------------
+17:27:29 | INFO    | predict_v2 | [Resample] raw=500,000, buf=7,791, used_time='Time', used_price='Tick_Bid', range=[2025-04-08 17:00:00 → 2025-04-11 09:00:00], bars=65, carry_rows=5,636 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.104s
+17:27:29 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=89, total=89, seq_len=24, horizon_bars=1
+17:27:29 | INFO    | predict_v2 | [Emit] ends 23→87 → rows=65
+17:27:29 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:29 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:29 | INFO    | predict_v2 | [Chunk#209] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:29 | INFO    | predict_v2 | [Write] +65 rows → out\RawTickDataOOS_preds.csv (total written: 32,865)
+17:27:30 | INFO    | predict_v2 | --- Chunk #210 -----------------------------------------------
+17:27:30 | INFO    | predict_v2 | [Resample] raw=500,000, buf=5,636, used_time='Time', used_price='Tick_Bid', range=[2025-04-11 10:00:00 → 2025-04-17 05:00:00], bars=92, carry_rows=348 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.102s
+17:27:30 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=116, total=116, seq_len=24, horizon_bars=1
+17:27:30 | INFO    | predict_v2 | [Emit] ends 23→114 → rows=92
+17:27:30 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:30 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:30 | INFO    | predict_v2 | [Chunk#210] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:30 | INFO    | predict_v2 | [Write] +92 rows → out\RawTickDataOOS_preds.csv (total written: 32,957)
+17:27:30 | INFO    | predict_v2 | --- Chunk #211 -----------------------------------------------
+17:27:30 | INFO    | predict_v2 | [Resample] raw=500,000, buf=348, used_time='Time', used_price='Tick_Bid', range=[2025-04-17 06:00:00 → 2025-04-23 16:00:00], bars=107, carry_rows=10,482 (freq=60min) | GPU0 used=12.2MB reserved=78.0MB free=7.9GB / total=8.0GB | took 0.089s
+17:27:30 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=131, total=131, seq_len=24, horizon_bars=1
+17:27:30 | INFO    | predict_v2 | [Emit] ends 23→129 → rows=107
+17:27:30 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:30 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:30 | INFO    | predict_v2 | [Chunk#211] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:30 | INFO    | predict_v2 | [Write] +107 rows → out\RawTickDataOOS_preds.csv (total written: 33,064)
+17:27:31 | INFO    | predict_v2 | --- Chunk #212 -----------------------------------------------
+17:27:31 | INFO    | predict_v2 | [Resample] raw=270,170, buf=10,482, used_time='Time', used_price='Tick_Bid', range=[2025-04-23 17:00:00 → 2025-04-28 22:00:00], bars=78, carry_rows=1,458 (freq=60min) | GPU0 used=12.2MB reseserved=78.0MB free=7.9GB / total=8.0GB | took 0.066s
+17:27:31 | INFO    | predict_v2 | [Windowing] hist=24, chunk_bars=102, total=102, seq_len=24, horizon_bars=1
+17:27:31 | INFO    | predict_v2 | [Emit] ends 23→100 → rows=78
+17:27:31 | WARNING | predict_v2 | [META][BUILD] C pad: 5 → 7 (fülle 2 Spalten, inkl. evtl. Zeitfeatures/0.5)
+17:27:31 | INFO    | predict_v2 | [COMBINE] Meta aktiv (K_in=5, L=24, ctx_dim=7) → Meta-Ausgabe verwendet.
+17:27:31 | INFO    | predict_v2 | [Chunk#212] DA_chunk=0.0000, MDA_chunk(band=0.001)=0.0000, coverage=100.00%
+17:27:31 | INFO    | predict_v2 | [Write] +78 rows → out\RawTickDataOOS_preds.csv (total written: 33,142)
+17:27:31 | INFO    | predict_v2 | [DONE] Rows=33,142
+(ml-env) PS C:\trainers>
