@@ -126,17 +126,70 @@ class _FTLogits(nn.Module):
 # ========================================================================== #
 # Einfache 1-D-CNN - konfigurierbar
 # ========================================================================== #
+# ========================================================================== #
+# Einfache 1-D-CNN - konfigurierbar (same-length Residual)
+# ========================================================================== #
 class SimpleCNN(nn.Module):
-    def __init__(self, n_feat: int, n_filters: int = 32):
+    def __init__(
+        self,
+        n_feat: int,
+        n_filters: int = 32,
+        dropout: float = 0.20,
+        k1: int = 3,
+        k2: int = 5,
+        dil2: int = 2,
+    ):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv1d(n_feat, n_filters, 3, padding=1),
-            nn.ReLU(),
+        # same-length padding:
+        pad1 = (k1 - 1) // 2
+        pad2 = (dil2 * (k2 - 1)) // 2
+
+        self.block1 = nn.Sequential(
+            nn.Conv1d(n_feat, n_filters, kernel_size=k1, padding=pad1, bias=False),
+            nn.BatchNorm1d(n_filters),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+        )
+        self.block2 = nn.Sequential(
+            nn.Conv1d(
+                n_filters,
+                n_filters,
+                kernel_size=k2,
+                padding=pad2,
+                dilation=dil2,
+                bias=False,
+            ),
+            nn.BatchNorm1d(n_filters),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+        )
+        self.head = nn.Sequential(
             nn.AdaptiveAvgPool1d(1),
             nn.Flatten(),
-            nn.Linear(n_filters, 1)
+            nn.Linear(n_filters, 1),
         )
-    def forward(self, x): return self.net(x).squeeze(-1)
+
+    def forward(self, x):
+        # x: [B, C=n_feat, T]
+        x = self.block1(x)
+        y = self.block2(x)
+        # Fallback: falls durch andere Kernel/Dilation die Länge minimal abweicht,
+        # auf die Länge von x ausrichten, damit Residual immer klappt.
+        if y.size(-1) != x.size(-1):
+            diff = x.size(-1) - y.size(-1)
+            if diff > 0:
+                # pad y auf die Länge von x
+                left = diff // 2
+                right = diff - left
+                y = nn.functional.pad(y, (left, right))
+            elif diff < 0:
+                # crop y auf die Länge von x (zentriert)
+                cut = -diff
+                left = cut // 2
+                right = cut - left
+                y = y[..., left : y.size(-1) - right]
+        x = y + x  # Residual
+        return self.head(x).squeeze(-1)
 
 # ========================================================================== #
 # Optuna-Utility
@@ -372,42 +425,125 @@ class HybridLongTrendTrainer(BaseTrainer):
         Xv = self._flat(self.X_val)
         val_preds = np.mean([m.predict(xgb.DMatrix(Xv)) for m in models], axis=0).astype(np.float32)
         return models, oof, val_preds
-
+    
     def _train_cnn(self, X, y):
+        import numpy as np
+        import torch
+        import torch.nn as nn
+        import torch.optim as optim
+        from torch.utils.data import TensorDataset, DataLoader
+        from torch.nn.utils import clip_grad_norm_
+        from sklearn.model_selection import TimeSeriesSplit
+
+        # 1) Sanitize
+        X = self._ensure_finite(X, "cnn/X")
+        y = np.nan_to_num(y, nan=0.0).astype(np.float32)
+
+        # Globale Z-Norm (nur für Full-Fit/Warmup & self.X_val)
+        F  = X.shape[2]
+        mu = X.reshape(-1, F).mean(axis=0)
+        sd = X.reshape(-1, F).std(axis=0)
+        sd = np.where(sd < 1e-6, 1.0, sd)
+
+        def _z(a: np.ndarray) -> np.ndarray:
+            a = np.asarray(a).copy()
+            a -= mu[None, None, :]
+            a /= sd[None, None, :]
+            return a.astype(np.float32, copy=False)
+
+        # 2) Hyperparam-Suche (nutzt _cnn_objective → self.X_train)
         best = run_optuna_and_save(
-            lambda t: self._cnn_objective(t),  # nutzt self.X_train intern
-            self._optuna_trials("cnn"), "cnn_study", self.model_dir
+            lambda t: self._cnn_objective(t),
+            self._optuna_trials("cnn"),
+            "cnn_study",
+            self.model_dir
         ).best_params
         self.best_cnn_params = dict(best)
-        mdl = SimpleCNN(X.shape[2], best["n_filters"]).to(self.device)
-        opt = optim.Adam(mdl.parameters(), lr=best["lr"])
-        crit= nn.BCEWithLogitsLoss()
-        Xt  = torch.tensor(X, dtype=torch.float32,
-                           device=self.device).permute(0,2,1)
-        yt  = torch.tensor(y, dtype=torch.float32, device=self.device)
+
+        # 3) Finales Full-Fit mit besten HParams
+        epochs_full = int(best.get("epochs", 12))
+        lr_full     = float(best["lr"])
+        n_filters   = int(best["n_filters"])
+
+        mdl  = SimpleCNN(n_feat=F, n_filters=n_filters, dropout=0.20).to(self.device)
+        posw = (len(y) - y.sum()) / (y.sum() + 1e-6)
+        crit = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([posw], device=self.device))
+        opt  = optim.AdamW(mdl.parameters(), lr=lr_full, weight_decay=1e-4)
+
+        Xz = _z(X)
+        Xt = torch.tensor(Xz, dtype=torch.float32, device=self.device).permute(0, 2, 1)  # [B,C,T]
+        yt = torch.tensor(y,  dtype=torch.float32, device=self.device)
+
+        dl = DataLoader(TensorDataset(Xt, yt), batch_size=256, shuffle=True, drop_last=True)
+
         mdl.train()
-        for _ in range(10):
-            opt.zero_grad(); loss = crit(mdl(Xt).squeeze(), yt)
-            loss.backward(); opt.step()
-        # OOF
+        for _ in range(epochs_full):
+            for xb, yb in dl:
+                opt.zero_grad(set_to_none=True)
+                logits = mdl(xb).squeeze()
+                loss   = crit(logits, yb)
+                loss.backward()
+                clip_grad_norm_(mdl.parameters(), 1.0)
+                opt.step()
+
+        # 4) OOF mit TimeSeriesSplit — mit fold-spezifischer Norm & frischem Modell je Fold
         tss = TimeSeriesSplit(n_splits=5)
         oof = np.zeros(len(X), dtype=np.float32)
+
         for tr, va in tss.split(X):
-            m = SimpleCNN(X.shape[2], best["n_filters"]).to(self.device)
-            o = optim.Adam(m.parameters(), lr=best["lr"])
+            # μ/σ nur aus dem Trainings-Fold
+            Ftr = X[tr].shape[2]
+            muT = X[tr].reshape(-1, Ftr).mean(axis=0)
+            sdT = X[tr].reshape(-1, Ftr).std(axis=0)
+            sdT = np.where(sdT < 1e-6, 1.0, sdT)
+
+            def zT(a: np.ndarray) -> np.ndarray:
+                a = np.asarray(a).copy()
+                a -= muT[None, None, :]
+                a /= sdT[None, None, :]
+                return a.astype(np.float32, copy=False)
+
+            Xtr = torch.tensor(self._ensure_finite(zT(X[tr]), "cnn/Xtr"),
+                               dtype=torch.float32, device=self.device).permute(0, 2, 1)
+            ytr = torch.tensor(np.nan_to_num(y[tr], nan=0.0).astype(np.float32),
+                               device=self.device)
+
+            Xva = torch.tensor(self._ensure_finite(zT(X[va]), "cnn/Xva"),
+                               dtype=torch.float32, device=self.device).permute(0, 2, 1)
+
+            # frisches Fold-Modell
+            m  = SimpleCNN(n_feat=F, n_filters=n_filters, dropout=0.20).to(self.device)
+            pw = (len(ytr) - ytr.sum().item()) / (ytr.sum().item() + 1e-6)
+            c  = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pw], device=self.device))
+            o  = optim.AdamW(m.parameters(), lr=lr_full, weight_decay=1e-4)
+
+            dl_tr = DataLoader(TensorDataset(Xtr, ytr), batch_size=256, shuffle=True, drop_last=True)
+
             m.train()
-            Xtr = torch.tensor(X[tr], dtype=torch.float32, device=self.device).permute(0,2,1)
-            ytr = torch.tensor(y[tr], dtype=torch.float32, device=self.device)
+            # kurze Anpassung (5 Epochen reichen meist für gutes OOF-Signal)
             for _ in range(5):
-                o.zero_grad(); L = crit(m(Xtr).squeeze(), ytr); L.backward(); o.step()
+                for xb, yb in dl_tr:
+                    o.zero_grad(set_to_none=True)
+                    L = c(m(xb).squeeze(), yb)
+                    L.backward()
+                    clip_grad_norm_(m.parameters(), 1.0)
+                    o.step()
+
             m.eval()
-            Xva = torch.tensor(X[va], dtype=torch.float32, device=self.device).permute(0,2,1)
-            oof[va] = torch.sigmoid(m(Xva).squeeze()).detach().cpu().numpy().astype(np.float32)
-        # Val
-        self.cnn = mdl.cpu()
-        Xv = torch.tensor(self.X_val, dtype=torch.float32).permute(0,2,1)
-        val_preds = torch.sigmoid(self.cnn(Xv)).detach().cpu().numpy().astype(np.float32)
-        return self.cnn, oof, val_preds
+            with torch.no_grad():
+                pv = torch.sigmoid(m(Xva).squeeze()).float().cpu().numpy()
+            pv = np.nan_to_num(pv, nan=0.5, posinf=1-1e-7, neginf=1e-7).clip(1e-7, 1-1e-7)
+            oof[va] = pv.astype(np.float32)
+
+        # 5) Validation-Preds auf self.X_val (mit globaler μ/σ)
+        with torch.no_grad():
+            Xv = torch.tensor(_z(self._ensure_finite(self.X_val, "cnn/X_val")),
+                              dtype=torch.float32, device=self.device).permute(0, 2, 1)
+            val_preds = torch.sigmoid(mdl(Xv).squeeze()).float().cpu().numpy()
+            val_preds = np.nan_to_num(val_preds, nan=0.5, posinf=1-1e-7, neginf=1e-7) \
+                            .clip(1e-7, 1-1e-7).astype(np.float32)
+
+        return [mdl], oof, val_preds
 
     # ---------------------------------------------------- FT-Transformer
     def _train_ft(self, X, y):
@@ -431,15 +567,26 @@ class HybridLongTrendTrainer(BaseTrainer):
             ft, pos_weight=posw, label_smooth_eps=0.1, focal_gamma=gamma
         )
         ds   = NumpyDataset(Xf, y)
-        Trainer(model, TrainingArguments(
-            output_dir=f"{self.model_dir}/ft_final",
-            per_device_train_batch_size=16, num_train_epochs=8,
-            learning_rate=hp["lr"],
-            no_cuda=(self.device.type == "cpu"),
-            fp16=False,
-            save_strategy="no", eval_strategy="no",
-            report_to=[]
-        ), train_dataset=ds, data_collator=numeric_collate).train()
+        bs   = int(self.cfg.get("training", {}).get("batch_size", 128))
+        gas  = int(self.cfg.get("training", {}).get("grad_accum_steps", 1))
+        use_fp16 = bool(self.cfg.get("training", {}).get("fp16", False))
+        Trainer(
+            model,
+            TrainingArguments(
+                output_dir=f"{self.model_dir}/ft_final",
+                per_device_train_batch_size=bs,
+                gradient_accumulation_steps=gas,
+                 num_train_epochs=8,
+                 learning_rate=hp["lr"],
+                 no_cuda=(self.device.type == "cpu"),
+                 fp16=use_fp16,
+                 save_strategy="no",
+                 eval_strategy="no",
+                 report_to=[]
+             ),
+             train_dataset=ds,
+             data_collator=numeric_collate
+         ).train()
         model = model.cpu()
         # OOF
         tss = TimeSeriesSplit(n_splits=5)
@@ -451,9 +598,18 @@ class HybridLongTrendTrainer(BaseTrainer):
                                                target_modules=["ffn.linear_first"]))
             posw = torch.tensor([(len(y[tr])-y[tr].sum())/(y[tr].sum()+1e-6)], device=self.device)
             m = FTWrapped(ft, pos_weight=posw, label_smooth_eps=0.1, focal_gamma=gamma).to(self.device)
-            Trainer(m, TrainingArguments(output_dir=f"{self.model_dir}/ft_oof",
-                   per_device_train_batch_size=16, num_train_epochs=4, learning_rate=hp["lr"],
-                   no_cuda=(self.device.type == "cpu"), fp16=True, save_strategy="no", eval_strategy="no", report_to=[]),
+            Trainer(
+            m,
+            TrainingArguments(
+              output_dir=f"{self.model_dir}/ft_oof",
+              per_device_train_batch_size=bs,
+              gradient_accumulation_steps=gas,
+              num_train_epochs=4,
+              learning_rate=hp["lr"],
+              no_cuda=(self.device.type == "cpu"),
+              fp16=use_fp16,  # oder explizit True, wenn du hier stets FP16 willst
+              save_strategy="no", eval_strategy="no", report_to=[]
+            ),
                    train_dataset=NumpyDataset(Xf[tr], y[tr]), data_collator=numeric_collate).train()
             oof[va] = self._predict_ft_batched(m, Xf[va], batch_size=64)
         # Val
@@ -473,7 +629,7 @@ class HybridLongTrendTrainer(BaseTrainer):
         if self.cfg["meta"].get("use_regime", False):
             cols = self.cfg["data"]["numerical_cols"]
             def regime_from_seq(X_seq):
-                iH, iL, iC = cols.index("high"), cols.index("low"), cols.index("Close")
+                iH, iL, iC = cols.index("high"), cols.index("low"), cols.index("close")
                 high, low, close = X_seq[:,:,iH], X_seq[:,:,iL], X_seq[:,:,iC]
                 tr = np.maximum(high, np.roll(close,1,axis=1)) - np.minimum(low, np.roll(close,1,axis=1))
                 tr[:,0] = (high[:,0] - low[:,0])
@@ -727,13 +883,59 @@ class HybridLongTrendTrainer(BaseTrainer):
 
     # ------------------------------------------------------------- save
     def save_model(self, *_):
+        """Speichert alle Teilmodelle konsistent für Inferenz.
+        - FT: LoRA wird gemerged → reines FTTransformer-StateDict (strict=True ladbar)
+        - CNN/META: state_dict
+        - RF/LGB/XGB: joblib
+        - Best-Params: JSON für spätere Reproduzierbarkeit
+        """
+        import json
         self.model_dir.mkdir(exist_ok=True)
-        torch.save(self.ft.state_dict(),   self.model_dir / "ft.pt")
-        torch.save(self.cnn.state_dict(),  self.model_dir / "cnn.pt")
+
+        # ---------- FT (LoRA-Adapter mergen → Base-Backbone speichern)
+        try:
+            # self.ft ist ein FTWrapped; darin liegt der (PEFT-)Backbone unter .ft
+            ft_wrapped = self.ft
+            # optional: das original WRAPPED-PEFT state_dict zusätzlich ablegen
+            torch.save(ft_wrapped.state_dict(), self.model_dir / "ft_peft_wrapped.pt")
+
+            peft_model = getattr(ft_wrapped, "ft", ft_wrapped)
+            # Falls verfügbar: Adapter in Basismodell mergen
+            ft_merged = peft_model
+            if hasattr(peft_model, "merge_and_unload"):
+                ft_merged = peft_model.merge_and_unload()  # liefert Base-Backbone
+
+            base = getattr(ft_merged, "base_model", None)
+            base_state = (base.state_dict() if base is not None else ft_merged.state_dict())
+            torch.save(base_state, self.model_dir / "ft.pt")
+        except Exception as e:
+            print(f"⚠️  FT-Merge fehlgeschlagen ({e}) – speichere Wrapper-StateDict.")
+            torch.save(self.ft.state_dict(), self.model_dir / "ft.pt")
+
+        # ---------- CNN
+        cnn_mod = self.cnn[0] if isinstance(self.cnn, (list, tuple)) else self.cnn
+        torch.save(cnn_mod.state_dict(), self.model_dir / "cnn.pt")
+
+        # ---------- META
         torch.save(self.meta.state_dict(), self.model_dir / "meta.pt")
+
+        # ---------- SKLearn-Modelle
         joblib.dump(self.rf_list,  self.model_dir / "rf_list.pkl")
         joblib.dump(self.lgb_list, self.model_dir / "lgb_list.pkl")
         joblib.dump(self.xgb_list, self.model_dir / "xgb_list.pkl")
+
+        # ---------- Best-Params (hilfreich fürs spätere Laden/Rebuild)
+        best = {
+            "rf":   getattr(self, "best_rf_params",  {}),
+            "lgb":  getattr(self, "best_lgb_params", {}),
+            "xgb":  getattr(self, "best_xgb_params", {}),
+            "cnn":  getattr(self, "best_cnn_params", {}),
+            "ft":   getattr(self, "best_ft_params",  {}),
+            "meta": getattr(self, "best_meta_params",{}),
+        }
+        with open(self.model_dir / "best_params.json", "w", encoding="utf-8") as f:
+            json.dump(best, f, ensure_ascii=False, indent=2)
+
         print(f"✅ Modelle gespeichert → {self.model_dir}")
 
     # ----------------------------------------------------- Hilfs-Methoden
@@ -849,42 +1051,98 @@ class HybridLongTrendTrainer(BaseTrainer):
         )
         preds = model.predict(dva, iteration_range=(0, model.best_iteration))
         return log_loss(y_va, preds)
+    
+    def _ensure_finite(self, arr: np.ndarray, tag: str = "") -> np.ndarray:
+        """Ersetzt NaN/±Inf und castet auf float32. Optional hier auch skalieren."""
+        arr = np.asarray(arr)
+        if not np.isfinite(arr).all():
+            arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        return arr.astype(np.float32, copy=False)
+
 
     # ───── Simple-CNN – Optuna-Objective ────────────────────────────
+# ───── Simple-CNN – Optuna-Objective (nutzt SimpleCNN oben) ────────────────
     def _cnn_objective(self, trial):
         import torch, torch.nn as nn
         from sklearn.model_selection import train_test_split
         from sklearn.metrics import log_loss
+        from torch.utils.data import TensorDataset, DataLoader
+        from torch.nn.utils import clip_grad_norm_
 
-        lr        = trial.suggest_float("lr", 1e-4, 5e-3, log=True)
-        n_filters = trial.suggest_int("n_filters", 16, 64)
+        # HParams (eng, stabil)
+        lr        = trial.suggest_float("lr", 2e-4, 8e-4, log=True)
+        n_filters = trial.suggest_int("n_filters", 24, 64)
+        max_epochs= trial.suggest_int("epochs", 12, 20)
+        batch_size= 256
 
-        model = SimpleCNN(n_feat=self.X_train.shape[2],
-                        n_filters=n_filters).to(self.device)
-        crit  = nn.BCEWithLogitsLoss()
-        opt   = torch.optim.Adam(model.parameters(), lr=lr)
-
+        # Split
         X_tr, X_va, y_tr, y_va = train_test_split(
             self.X_train, self.y_train, test_size=0.2, shuffle=False
         )
-        X_tr_t = torch.tensor(X_tr, dtype=torch.float32,
-                            device=self.device).permute(0, 2, 1)
-        y_tr_t = torch.tensor(y_tr, dtype=torch.float32, device=self.device)
 
-        model.train()
-        for _ in range(5):
-            opt.zero_grad()
-            loss = crit(model(X_tr_t).squeeze(), y_tr_t)
-            loss.backward(); opt.step()
+        # Finite + Z-Score (μ/σ nur aus Train!)
+        def _ensure_finite(a):
+            a = np.asarray(a)
+            return np.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
+        X_tr = _ensure_finite(X_tr); X_va = _ensure_finite(X_va)
+        y_tr = np.nan_to_num(y_tr, nan=0.0).astype(np.float32)
+        y_va = np.nan_to_num(y_va, nan=0.0).astype(np.float32)
 
-        model.eval()
-        with torch.no_grad():
-            X_va_t = torch.tensor(X_va, dtype=torch.float32, device=self.device).permute(0, 2, 1)
-            logits_t = model(X_va_t).squeeze()                 # Tensor, kein zweiter Forward-Pass
-            probs = torch.sigmoid(logits_t).cpu().numpy()      # stabile Sigmoid in Torch
-            probs = np.clip(probs, 1e-7, 1 - 1e-7)             # gegen 0/1 clampen
-        return log_loss(y_va, probs)
+        F  = X_tr.shape[2]
+        mu = X_tr.reshape(-1, F).mean(axis=0)
+        sd = X_tr.reshape(-1, F).std(axis=0); sd = np.where(sd < 1e-6, 1.0, sd)
 
+        def _z(a):
+            a = a.copy()
+            a -= mu[None, None, :]
+            a /= sd[None, None, :]
+            return a.astype(np.float32, copy=False)
+
+        X_tr = _z(X_tr); X_va = _z(X_va)
+
+        # Tensors & Loader
+        X_tr_t = torch.tensor(X_tr, device=self.device).permute(0, 2, 1)  # [B,C,T]
+        y_tr_t = torch.tensor(y_tr, device=self.device)
+        X_va_t = torch.tensor(X_va, device=self.device).permute(0, 2, 1)
+
+        ds_tr  = TensorDataset(X_tr_t, y_tr_t)
+        dl_tr  = DataLoader(ds_tr, batch_size=batch_size, shuffle=True, drop_last=True)
+
+        # Model, Loss, Opt, Sched
+        model = SimpleCNN(n_feat=F, n_filters=n_filters, dropout=0.20).to(self.device)
+        pos_weight = (len(y_tr) - y_tr.sum()) / (y_tr.sum() + 1e-6)
+        crit  = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight], device=self.device))
+        opt   = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+        sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="min", factor=0.5, patience=1, verbose=False)
+
+        best_val, best_probs, wait, patience = float("inf"), np.full_like(y_va, 0.5, np.float32), 0, 3
+
+        for epoch in range(max_epochs):
+            model.train()
+            for xb, yb in dl_tr:
+                opt.zero_grad(set_to_none=True)
+                logits = model(xb).squeeze()
+                loss   = crit(logits, yb)
+                loss.backward()
+                clip_grad_norm_(model.parameters(), 1.0)
+                opt.step()
+
+            # — Validation (gebatcht)
+            model.eval()
+            with torch.no_grad():
+                pv = torch.sigmoid(model(X_va_t).squeeze()).float().cpu().numpy()
+            pv  = np.nan_to_num(pv, nan=0.5, posinf=1-1e-7, neginf=1e-7).clip(1e-7, 1-1e-7)
+            val = log_loss(y_va, pv)
+            sched.step(val)
+
+            if val + 1e-4 < best_val:
+                best_val, best_probs, wait = float(val), pv.astype(np.float32), 0
+            else:
+                wait += 1
+                if wait >= patience:
+                    break
+
+        return float(best_val)
 
     # ───────────────── FT-Transformer Optuna-Objective ──────────────────
     def _ft_objective(self, trial, Xf: np.ndarray, y: np.ndarray) -> float:
