@@ -1,21 +1,21 @@
 # ───────────────────────── Daten & Features ─────────────────────────
 data:
-  raw_dir: data/                 # Ordner mit den Rohdaten
-  longtrend_file: longtrend.csv  # Haupt-CSV/Parquet
-  numerical_cols:                # Spalten, die LongTrendDataset nutzt
-    - Open
+  raw_dir: data/
+  longtrend_file: longtrend.csv
+  numerical_cols:
+    - open
     - high
     - low
-    - Close
-    - Volume
+    - close
+    - volume
     - sma_10
     - ema_20
     - rsi_14
-    - hour_sin
-    - hour_cos
+    - hour_sin      # ← hinzufügen
+    - hour_cos      # ← hinzufügen
 
 features:
-  window_sizes: [5, 10, 20]      # für SMA/EMA in utils.features.enrich
+  window_sizes: [5, 10, 20]
   indicators:
     - sma_20
     - ema_20
@@ -23,32 +23,32 @@ features:
     - macd
     - bb_pct
     - atr_14
-  time_features: true            # Tag/Std-Fourier-Features
+  time_features: true
 
 # ───────────────────────── Cross-Validation ────────────────────────
 cv:
   type: timeseries
   params:
-    n_splits: 8                  # wird nur von utils.dataset genutzt
+    n_splits: 5
 
 # ───────────────────────── Modell-Blöcke ───────────────────────────
 model:
-  type: hybrid_longtrend         # wird in train.py gewählt
+  type: hybrid_longtrend
 
   rf_params:
     n_estimators: 250
     max_depth: 8
     class_weight: balanced
 
-  ft_params:                     # FT-Backbone-Grundeinstellung
-    d_token: 348
+  ft_params:
+    d_token: 256          # statt 348
     n_blocks: 4
     ffn_dropout: 0.20
     attention_dropout: 0.20
 
 # ───────────────────────── Optionales SSL-Pretraining ──────────────
 pretraining:
-  enabled: false                 # true → vorab Self-Supervised
+  enabled: false
   weights_path: ft_ssl.pt
   epochs: 20
   batch_size: 256
@@ -56,39 +56,35 @@ pretraining:
 # ───────────────────────── Training-Hyperparameter ─────────────────
 training:
   seq_len: 24
-  batch_size: 128
+  batch_size: 256
+  grad_accum_steps: 1        # >1, wenn du effektiven Batch erhöhen willst
+  fp16: true                 # spart VRAM, wenn stabil
   num_train_epochs: 50
-  lr: 4e-3
+  lr: 0.0015             # statt 0.004
+  weight_decay: 0.0001
   lr_scheduler: cosine
   warmup_epochs: 2
-  ft_optuna_epochs: 4            # Scout-Phase für FT-Optuna
+  ft_optuna_epochs: 10   # statt 4
+  early_stopping_patience: 10
+  seed: 42
 
 # ───────────────────────── Verlustfunktion ─────────────────────────
 loss:
   use_focal: true
-  focal_gamma: 2.0               # 0 ⇒ nur BCEWithLogits
+  focal_gamma: 2.0
 
 # ───────────────────────── Optuna-Steuerung ────────────────────────
 optuna:
-+optuna:
-  # Globaler Fallback, wenn unten für ein Modell nichts angegeben ist
-  n_trials: 1
-  # Pro-Modell individuell überschreibbar:
-  rf:
-    n_trials: 1
-  lgb:
-    n_trials: 1
-  xgb:
-    n_trials: 1
-  cnn:
-    n_trials: 1
-  ft:
-    n_trials: 1
-  meta:
-    n_trials: 1
-  direction: minimize            # Log-Loss ↓
+  n_trials: 20
+  rf:   { n_trials: 25 }
+  lgb:  { n_trials: 50 }
+  xgb:  { n_trials: 50 }
+  cnn:  { n_trials: 40 }
+  ft:   { n_trials: 35 }
+  meta: { n_trials: 100 }
+  direction: minimize
   sampler: tpe
-  pruner: median                 # Median-Pruner
+  pruner: median
   enable_rf:   true
   enable_lgb:  true
   enable_xgb:  true
@@ -97,14 +93,14 @@ optuna:
 
 # ───────────────────────── Meta-Transformer ────────────────────────
 meta:
-  use_regime: true               # ATR & Bollinger-%B anhängen
+  use_regime: true
   d_token: 92
   n_blocks: 2
   d_ff: 256
   dropout: 0.10
   num_train_epochs: 30
-  alpha_base_mix: 1.0  # 1.0 = nur Basis-Preds, <1.0 = Mischung mit Meta-Kopf
-  
+  alpha_base_mix: 1.0
+
 # ───────────────────────── Ausgabe-Pfad / Tag ──────────────────────
 output_root: models/
 exp_name: hybrid_longtrend
