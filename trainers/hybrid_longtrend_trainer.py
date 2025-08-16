@@ -115,6 +115,108 @@ def calibrate_temperature(model, val_loader):
         return loss
     opt.step(_loss)
     return scaler.temperature.item()
+
+# === Neu: Trainings-Signatur + Inferenz-Artefakte persistieren ===
+def persist_inference_signature(self):
+    """
+    Schreibt stabile Artefakte für die Inferenz:
+      - train_meta.json
+      - feature_list.json
+      - cnn_norm.json         (falls self.cnn_norm_ gesetzt)
+      - meta_spec.json
+      - ft_lora.json          (nur Info)
+    """
+    import json
+    from pathlib import Path
+
+    md = Path(self.model_dir)
+    md.mkdir(parents=True, exist_ok=True)
+
+    cfg       = getattr(self, "cfg", {}) or {}
+    data_cfg  = cfg.get("data", {})
+    trn_cfg   = cfg.get("training", {})
+    lbl_cfg   = cfg.get("label", {})
+    meta_cfg  = cfg.get("meta", {})
+
+    # Featureliste exakt wie im Training
+    feature_list = list(data_cfg.get("numerical_cols", []))
+    self.feature_list = feature_list  # für späteren Zugriff
+
+    # Basis-Parameter (Locking)
+    freq      = str(data_cfg.get("resample", data_cfg.get("freq", "5min")))
+    seq_len   = int(trn_cfg.get("seq_len", 24))
+    horizon   = int(lbl_cfg.get("horizon_min", 60))
+    use_reg   = bool(meta_cfg.get("use_regime", False))
+    base_order= ["rf","lgb","xgb","ft","cnn"]  # Trainingskanalreihenfolge
+
+    n_features = len(feature_list)
+    ft_in_features = int(seq_len * max(1, n_features))
+
+    # Meta-Spezifikation
+    meta_history_L = int(meta_cfg.get("history_L", 12))  # Historie-Länge im Meta
+    # ctx: rolling LogLoss je Basismodell + (optional) Regime (atr/bbp)
+    ctx_cols = [f"roll_ll_{k}" for k in base_order]
+    if use_reg:
+        ctx_cols += ["atr", "bbp"]
+    meta_ctx_dim = len(ctx_cols)
+
+    # Flatten-Order dokumentieren (C-Order: inner=F, dann L)
+    flatten_spec = {
+        "source_shape": "(N, L, F)",
+        "order": "C",
+        "inner": "F",
+        "outer": "L"
+    }
+
+    # train_meta.json
+    train_meta = {
+        "freq": freq,
+        "seq_len": seq_len,
+        "label_horizon_min": horizon,
+        "use_regime": use_reg,
+        "base_order": base_order,
+        "n_features": n_features,
+        "ft_in_features": ft_in_features,
+        "flatten_order": flatten_spec,
+        "meta_history_L": meta_history_L,
+        "meta_ctx_dim": meta_ctx_dim,
+        "meta_ctx_columns": ctx_cols,
+    }
+    (md / "train_meta.json").write_text(json.dumps(train_meta, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # feature_list.json
+    if feature_list:
+        (md / "feature_list.json").write_text(json.dumps(feature_list, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # cnn_norm.json (falls vorhanden)
+    if getattr(self, "cnn_norm_", None):
+        (md / "cnn_norm.json").write_text(json.dumps(self.cnn_norm_, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # meta_spec.json (redundant, aber bequem)
+    meta_spec = {
+        "K": len(base_order),
+        "L": meta_history_L,
+        "ctx_dim": meta_ctx_dim,
+        "ctx_columns": ctx_cols,
+        "alpha_base_mix": float(meta_cfg.get("alpha_base_mix", 1.0)),
+        "entropy_weight": float(meta_cfg.get("entropy_weight", 1e-3)),
+        "tv_weight": float(meta_cfg.get("tv_weight", 1e-3)),
+    }
+    (md / "meta_spec.json").write_text(json.dumps(meta_spec, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # ft_lora.json (reine Doku)
+    ft_info = {"had_lora": False}
+    try:
+        # self.ft ist FTWrapped → Backbone unter .ft
+        peft_obj = getattr(self.ft, "ft", None)
+        # Heuristik: wenn ein peft_config Attribut existiert oder lora_* Keys im state_dict
+        sd_keys = list((peft_obj.state_dict().keys() if peft_obj else self.ft.state_dict().keys()))
+        ft_info["had_lora"] = any("lora_" in k for k in sd_keys)
+    except Exception:
+        pass
+    (md / "ft_lora.json").write_text(json.dumps(ft_info, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 # ---- neu: kleiner Wrapper für FT-Logits (für Temperature-Scaling)
 class _FTLogits(nn.Module):
     def __init__(self, ft_model: nn.Module):
@@ -444,6 +546,14 @@ class HybridLongTrendTrainer(BaseTrainer):
         mu = X.reshape(-1, F).mean(axis=0)
         sd = X.reshape(-1, F).std(axis=0)
         sd = np.where(sd < 1e-6, 1.0, sd)
+
+            # === WICHTIG: für Inferenz persistieren wir diese Werte später
+        #     (save_model -> persist_inference_signature liest self.cnn_norm_)
+        self.cnn_norm_ = {
+            "feature_list": list(self.cfg.get("data", {}).get("numerical_cols", [])),
+            "mu": [float(v) for v in mu],
+            "sd": [float(v) for v in sd],
+        }
 
         def _z(a: np.ndarray) -> np.ndarray:
             a = np.asarray(a).copy()
@@ -883,48 +993,52 @@ class HybridLongTrendTrainer(BaseTrainer):
 
     # ------------------------------------------------------------- save
     def save_model(self, *_):
-        """Speichert alle Teilmodelle konsistent für Inferenz.
-        - FT: LoRA wird gemerged → reines FTTransformer-StateDict (strict=True ladbar)
-        - CNN/META: state_dict
-        - RF/LGB/XGB: joblib
-        - Best-Params: JSON für spätere Reproduzierbarkeit
+        """
+        Speichert alle Teilmodelle + Inferenz-Artefakte.
+          - FT: LoRA mergen (falls möglich) → ft.pt (strict ladbar)
+          - CNN: cnn.pt
+          - META: meta.pt
+          - RF/LGB/XGB: *.pkl
+          - best_params.json
+          - train_meta.json, feature_list.json, cnn_norm.json, meta_spec.json, ft_lora.json
         """
         import json
-        self.model_dir.mkdir(exist_ok=True)
+        from pathlib import Path
 
-        # ---------- FT (LoRA-Adapter mergen → Base-Backbone speichern)
+        md = Path(self.model_dir)
+        md.mkdir(parents=True, exist_ok=True)
+
+        # --- FT (LoRA-Adapter mergen wenn vorhanden)
         try:
-            # self.ft ist ein FTWrapped; darin liegt der (PEFT-)Backbone unter .ft
-            ft_wrapped = self.ft
-            # optional: das original WRAPPED-PEFT state_dict zusätzlich ablegen
-            torch.save(ft_wrapped.state_dict(), self.model_dir / "ft_peft_wrapped.pt")
+            ft_wrapped = self.ft  # FTWrapped
+            torch.save(ft_wrapped.state_dict(), md / "ft_peft_wrapped.pt")  # optional: Rohzustand ablegen
 
             peft_model = getattr(ft_wrapped, "ft", ft_wrapped)
-            # Falls verfügbar: Adapter in Basismodell mergen
-            ft_merged = peft_model
             if hasattr(peft_model, "merge_and_unload"):
-                ft_merged = peft_model.merge_and_unload()  # liefert Base-Backbone
-
-            base = getattr(ft_merged, "base_model", None)
-            base_state = (base.state_dict() if base is not None else ft_merged.state_dict())
-            torch.save(base_state, self.model_dir / "ft.pt")
+                base = peft_model.merge_and_unload()  # Base-Backbone
+                base_state = getattr(base, "state_dict", lambda: base)()
+                torch.save(base_state, md / "ft.pt")
+            else:
+                # kein LoRA verfügbar
+                base_state = peft_model.state_dict()
+                torch.save(base_state, md / "ft.pt")
         except Exception as e:
-            print(f"⚠️  FT-Merge fehlgeschlagen ({e}) – speichere Wrapper-StateDict.")
-            torch.save(self.ft.state_dict(), self.model_dir / "ft.pt")
+            print(f"[WARN] FT-Merge fehlgeschlagen ({e}) – speichere Wrapper-StateDict als ft.pt")
+            torch.save(self.ft.state_dict(), md / "ft.pt")
 
-        # ---------- CNN
+        # --- CNN
         cnn_mod = self.cnn[0] if isinstance(self.cnn, (list, tuple)) else self.cnn
-        torch.save(cnn_mod.state_dict(), self.model_dir / "cnn.pt")
+        torch.save(cnn_mod.state_dict(), md / "cnn.pt")
 
-        # ---------- META
-        torch.save(self.meta.state_dict(), self.model_dir / "meta.pt")
+        # --- META
+        torch.save(self.meta.state_dict(), md / "meta.pt")
 
-        # ---------- SKLearn-Modelle
-        joblib.dump(self.rf_list,  self.model_dir / "rf_list.pkl")
-        joblib.dump(self.lgb_list, self.model_dir / "lgb_list.pkl")
-        joblib.dump(self.xgb_list, self.model_dir / "xgb_list.pkl")
+        # --- Tree-Modelle
+        joblib.dump(self.rf_list,  md / "rf_list.pkl")
+        joblib.dump(self.lgb_list, md / "lgb_list.pkl")
+        joblib.dump(self.xgb_list, md / "xgb_list.pkl")
 
-        # ---------- Best-Params (hilfreich fürs spätere Laden/Rebuild)
+        # --- Best-Params
         best = {
             "rf":   getattr(self, "best_rf_params",  {}),
             "lgb":  getattr(self, "best_lgb_params", {}),
@@ -933,10 +1047,19 @@ class HybridLongTrendTrainer(BaseTrainer):
             "ft":   getattr(self, "best_ft_params",  {}),
             "meta": getattr(self, "best_meta_params",{}),
         }
-        with open(self.model_dir / "best_params.json", "w", encoding="utf-8") as f:
-            json.dump(best, f, ensure_ascii=False, indent=2)
+        (md / "best_params.json").write_text(json.dumps(best, indent=2, ensure_ascii=False), encoding="utf-8")
 
-        print(f"✅ Modelle gespeichert → {self.model_dir}")
+        # --- Temperatur (falls schon gelernt)
+        # Hinweis: In optimize() speichern wir temp_scaler.pt bereits.
+        # Hier kein Duplikat notwendig.
+
+        # --- Inferenz-Signatur/Artefakte
+        try:
+            persist_inference_signature(self)
+        except Exception as ex:
+            print(f"[WARN] Persistierung der Inferenz-Signatur fehlgeschlagen: {ex}")
+
+        print(f"✅ Modelle & Artefakte gespeichert → {md}")
 
     # ----------------------------------------------------- Hilfs-Methoden
     @staticmethod
